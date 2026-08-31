@@ -278,6 +278,74 @@ different job: sync `out/` to **R2** and put a Worker in front to serve the
 library and files. Separation would still need the Mac, or a GPU host — R2 and
 a Worker only remove the Mac from the *playback* path.
 
+## Running separation on the device
+
+`export/` converts `htdemucs_6s` to a Core ML package, so the six base stems
+can be produced on an iPhone with no server at all.
+
+```bash
+.venv/bin/python export/to_coreml.py build/htdemucs_6s.mlpackage
+.venv/bin/python export/verify.py build/htdemucs_6s.mlpackage <some>/source.flac
+```
+
+Measured on an M4, 7.8 s segment, fp16:
+
+| | |
+|---|---|
+| speed | **18.8x realtime** (0.41 s per 7.8 s segment) |
+| accuracy vs PyTorch | 57.8 dB SNR overall, error at **-84 dBFS** |
+| package size | 171 MB |
+
+### What the conversion needed
+
+Core ML will not take htdemucs as it stands, for four separate reasons:
+
+1. **No complex dtype.** Its type domain is `fp16, fp32, int8/16/32,
+   uint8/16, bool`. It can *build* a complex value and run `stft` and `irfft`,
+   but it cannot slice or pad one -- and demucs does both. There is no `istft`
+   and no `view_as_complex` at all.
+
+   With `cac=True` the network already works on real tensors: the complex
+   spectrogram exists only to be unpacked by `view_as_real`, and `_mask`
+   ignores it outright. So `export/htdemucs_real.py` carries `(real, imag)` as
+   a trailing axis from the moment the STFT produces it, and
+   `export/spectral.py` writes the inverse transform by hand.
+
+2. **Rank 5 maximum.** Adding that trailing axis makes the mask rank 6, so
+   sources and channels stay merged until the axis is gone.
+
+3. **Fused attention.** `nn.MultiheadAttention` takes a fast path in eval mode
+   that traces to one `_native_multi_head_attention` the converter does not
+   implement. `torch.backends.mha.set_fastpath_enabled(False)` makes it trace
+   as ordinary matmul and softmax.
+
+4. **A converter quirk.** Shape arithmetic arrives as a one-element array
+   where its int cast wants a scalar; `to_coreml.py` unwraps it.
+
+The rewrite is numerically exact: **8.9e-08** maximum difference against the
+original PyTorch model, which is float32 rounding.
+
+### The overlap-add trap
+
+The first working version ran at **0.05x realtime** -- 156 seconds for one 7.8
+second segment. The cause was the inverse transform: expressing overlap-add as
+a transposed convolution with an identity kernel is correct and one line, but
+it costs O(n_fft^2) per frame, about 5.7 GMAC per segment.
+
+Because the hop divides `n_fft` exactly, the frames split into four
+interleaved lanes whose members never overlap, so each lane is a reshape laid
+end to end and the lanes are summed at their offsets. Same result, O(n_fft)
+per frame, **380x faster**.
+
+### What is not on the device
+
+- **The two refinement stages.** Lead/backing vocals and the drum kit split
+  need another 1.3 GB of weights and the same surgery each. The six base stems
+  are the 52 MB one.
+- **YouTube.** Not a technical limit: App Store guideline 5.2.3 names YouTube
+  directly, and TestFlight goes through the same review. On-device separation
+  is worth pairing with local file import rather than downloads.
+
 ## Playlists
 
 The app reads playlists from **Apple Music** and **Spotify** so you can pick
