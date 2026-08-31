@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(StemsClient.self) private var client
+    @Environment(Account.self) private var account
     @Environment(\.scenePhase) private var scenePhase
     @State private var checkedSavedServer = false
 
@@ -11,6 +12,8 @@ struct RootView: View {
                 ProgressView().task { await validateSavedServer() }
             } else if client.baseURL == nil {
                 NavigationStack { ConnectView() }
+            } else if !account.isSignedIn {
+                NavigationStack { SignInView() }
             } else {
                 TabView {
                     NavigationStack { LibraryView() }
@@ -37,6 +40,8 @@ struct RootView: View {
         if let saved = client.baseURL, await client.probe(saved) == false {
             client.baseURL = nil
         }
+        // A stored session is a guess too: it may have expired or been revoked.
+        await account.restore()
         checkedSavedServer = true
     }
 }

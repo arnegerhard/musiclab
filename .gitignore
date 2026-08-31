@@ -17,3 +17,9 @@ xcuserdata/
 
 .DS_Store
 ios/Musiclab/Info.plist
+ios/Musiclab/Musiclab.entitlements
+
+# Accounts: password hashes and live session tokens. Never commit this.
+musiclab.db
+musiclab.db-shm
+musiclab.db-wal

@@ -176,6 +176,62 @@ Models used: `htdemucs_6s` for the six-way split,
 `mel_band_roformer_karaoke` for lead vs. backing, and `MDX23C-DrumSep` for the
 kit. All are downloaded via [`audio-separator`](https://github.com/nomadkaraoke/python-audio-separator).
 
+## Accounts
+
+Every song belongs to an account, and accounts cannot see each other's.
+
+```bash
+.venv/bin/python -m stems.cli --add-user you@example.com   # prompts for a password
+.venv/bin/python -m stems.cli --list-users
+.venv/bin/python -m stems.cli --claim you@example.com      # adopt pre-account tracks
+```
+
+Or just create the account from the app's sign-in screen.
+
+### Signing in
+
+- **Apple.** The app sends Apple's identity token; the server verifies its
+  signature against Apple's published keys and checks the audience is this
+  bundle id, so a token minted for another app will not work. If someone signed
+  up by email and later uses Apple with the same address, the accounts are
+  linked rather than duplicated.
+- **Email and password.** Hashed with `scrypt` from the standard library --
+  memory-hard, per-password salt, no extra dependency.
+- **Sessions** are random bearer tokens; only their SHA-256 is stored, so a
+  copy of the database does not hand over live sessions. The app keeps its
+  token in the keychain.
+
+### Password reset
+
+`POST /api/auth/reset/request` emails a six-digit code, valid 15 minutes,
+single use, five attempts. Configure mail with `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`. **Without SMTP the code is printed
+to the server console**, so a one-person server is never locked out.
+
+Requesting a reset answers the same whether or not the address has an account,
+and a failed sign-in says "wrong email or password" either way, so neither can
+be used to discover who has an account.
+
+### How songs are separated per user
+
+Tracks live at `out/<user id>/<slug>/`, so accounts are separated on disk
+rather than merely filtered in a query.
+
+The blanket `StaticFiles` mount over the whole output directory is gone: with
+accounts it would have let any signed-in user read any other's songs by
+guessing a path. `/files/{slug}/{path}` now resolves inside the caller's own
+tree, and **the URL carries no user id at all** -- it comes from the session,
+so it cannot be pointed elsewhere. Paths are resolved before the containment
+check, which is what stops `..` and symlinks. Range requests still work, so
+audio still seeks.
+
+### Do you need a database?
+
+Yes, and it is SQLite -- a single file, no server, in the standard library.
+The reason is not scale: the separation worker writes from a background thread
+while request handlers read and write on the event loop, and JSON files would
+need their own locking and could still tear a write.
+
 ## Reaching the server from anywhere
 
 Bonjour only works on the local network, so it is for local development only.

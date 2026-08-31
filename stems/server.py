@@ -4,49 +4,43 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import threading
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import match, pipeline
+from .api_auth import current_user
+from .api_auth import router as auth_router
 from .config import DEFAULT_FORMAT, OUT_DIR
 
 SERVICE_TYPE = "_stems._tcp.local."
 
 WEB_DIR = Path(__file__).parent / "web"
 
-app = FastAPI(title="stems")
-
-# Set STEMS_TOKEN when the server is reachable from the internet. Without it
-# anyone who finds the hostname can read the whole library and make the machine
-# download and separate arbitrary videos. Unset (the default) leaves the server
-# open, which is fine on a home network and necessary for zero-setup discovery.
-API_TOKEN = os.environ.get("STEMS_TOKEN", "").strip()
+app = FastAPI(title="musiclab")
+app.include_router(auth_router)
 
 
-@app.middleware("http")
-async def require_token(request: Request, call_next):
-    if API_TOKEN:
-        header = request.headers.get("authorization", "")
-        expected = f"Bearer {API_TOKEN}"
-        # Compared in constant time so the token cannot be guessed byte by byte.
-        if not secrets.compare_digest(header, expected):
-            return JSONResponse({"detail": "unauthorized"}, status_code=401)
-    return await call_next(request)
+def user_dir(user: dict) -> Path:
+    """Each account gets its own tree, so one user's songs are not merely
+    hidden from another but stored somewhere else entirely."""
+    path = OUT_DIR / user["id"]
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 # Separation saturates the machine, so one job at a time; the rest queue.
 _executor = ThreadPoolExecutor(max_workers=1)
 _jobs: dict[str, dict] = {}
 _requests: dict[str, "JobRequest"] = {}
+_owners: dict[str, dict] = {}          # job id -> the user who queued it
 _batches: dict[str, list[str]] = {}
+_batch_owners: dict[str, str] = {}
 _lock = threading.Lock()
 
 
@@ -179,7 +173,7 @@ def _run_separation(job_id: str, request: JobRequest, url: str):
     try:
         result = pipeline.run(
             url,
-            out_dir=OUT_DIR,
+            out_dir=user_dir(_owners[job_id]),
             split_vocals=request.split_vocals,
             split_drums=request.split_drums,
             audio_format=request.audio_format,
@@ -198,11 +192,12 @@ def _run_separation(job_id: str, request: JobRequest, url: str):
         _update(job_id, status="error", phase="Failed", error=str(exc))
 
 
-def _enqueue(request: JobRequest) -> str:
+def _enqueue(request: JobRequest, user: dict) -> str:
     job_id = uuid.uuid4().hex[:12]
     with _lock:
         _jobs[job_id] = {
             "id": job_id,
+            "user_id": user["id"],
             "status": "queued",
             "phase": "Queued",
             "progress": 0,
@@ -212,31 +207,33 @@ def _enqueue(request: JobRequest) -> str:
             "log": [],
         }
         _requests[job_id] = request
+        _owners[job_id] = user
     _executor.submit(_run_job, job_id, request)
     return job_id
 
 
 @app.post("/api/match")
-def find_match(track: PlaylistTrack):
+def find_match(track: PlaylistTrack, user: dict = Depends(current_user)):
     """Preview what a playlist track would be matched to, without separating."""
     candidates = match.search(track.title, track.artist, track.duration)
     return {"candidates": [_candidate_json(c) for c in candidates[:5]]}
 
 
 @app.post("/api/jobs")
-def create_job(request: JobRequest):
+def create_job(request: JobRequest, user: dict = Depends(current_user)):
     if not (request.url and request.url.strip()) and request.track is None:
         raise HTTPException(400, "give either a url or a track")
-    return {"id": _enqueue(request)}
+    return {"id": _enqueue(request, user)}
 
 
 @app.post("/api/jobs/{job_id}/confirm")
-def confirm_job(job_id: str, choice: ConfirmRequest):
+def confirm_job(job_id: str, choice: ConfirmRequest, user: dict = Depends(current_user)):
     """Accept one of the offered matches and let the job continue."""
     with _lock:
         job = _jobs.get(job_id)
         request = _requests.get(job_id)
-        if job is None or request is None:
+        # Not "forbidden": another user's job should look like no job at all.
+        if job is None or request is None or job.get("user_id") != user["id"]:
             raise HTTPException(404, "no such job")
         if job["status"] != "needs_confirmation":
             raise HTTPException(409, "this job is not waiting for confirmation")
@@ -255,7 +252,7 @@ def confirm_job(job_id: str, choice: ConfirmRequest):
 
 
 @app.post("/api/batch")
-def create_batch(request: BatchRequest):
+def create_batch(request: BatchRequest, user: dict = Depends(current_user)):
     """Queue a whole playlist selection. Jobs run one at a time."""
     if not request.tracks:
         raise HTTPException(400, "no tracks given")
@@ -267,41 +264,44 @@ def create_batch(request: BatchRequest):
                 split_drums=request.split_drums,
                 audio_format=request.audio_format,
                 require_confident=request.require_confident,
-            )
+            ),
+            user,
         )
         for track in request.tracks
     ]
     batch_id = uuid.uuid4().hex[:12]
     with _lock:
         _batches[batch_id] = ids
+        _batch_owners[batch_id] = user["id"]
     return {"id": batch_id, "jobs": ids}
 
 
 @app.get("/api/batch/{batch_id}")
-def get_batch(batch_id: str):
+def get_batch(batch_id: str, user: dict = Depends(current_user)):
     with _lock:
         ids = _batches.get(batch_id)
-        if ids is None:
+        if ids is None or _batch_owners.get(batch_id) != user["id"]:
             raise HTTPException(404, "no such batch")
         return {"id": batch_id, "jobs": [dict(_jobs[i]) for i in ids if i in _jobs]}
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str):
+def get_job(job_id: str, user: dict = Depends(current_user)):
     with _lock:
         job = _jobs.get(job_id)
-        if job is None:
+        if job is None or job.get("user_id") != user["id"]:
             raise HTTPException(404, "no such job")
         return dict(job)
 
 
 @app.get("/api/library")
-def library():
-    """Previously separated tracks still sitting in the output directory."""
+def library(user: dict = Depends(current_user)):
+    """This user's separated tracks, and only theirs."""
     entries = []
-    if OUT_DIR.exists():
+    root = user_dir(user)
+    if root.exists():
         for manifest_path in sorted(
-            OUT_DIR.glob("*/manifest.json"),
+            root.glob("*/manifest.json"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         ):
@@ -322,18 +322,19 @@ def library():
 
 
 @app.get("/api/library/{slug}")
-def library_entry(slug: str):
-    manifest_path = (OUT_DIR / slug / "manifest.json").resolve()
-    # Keep a crafted slug from walking out of the output directory.
-    if not manifest_path.is_relative_to(OUT_DIR.resolve()) or not manifest_path.exists():
-        raise HTTPException(404, "no such track")
-    return json.loads(manifest_path.read_text())
+def library_entry(slug: str, user: dict = Depends(current_user)):
+    return json.loads((_job_dir(user, slug) / "manifest.json").read_text())
 
 
-def _job_dir(slug: str) -> Path:
-    """Resolve a slug to its job directory, refusing anything outside OUT_DIR."""
-    path = (OUT_DIR / slug).resolve()
-    if not path.is_relative_to(OUT_DIR.resolve()) or not path.is_dir():
+def _job_dir(user: dict, slug: str) -> Path:
+    """Resolve a slug inside this user's tree, refusing anything outside it.
+
+    Resolving first and then checking containment is what stops "../" and
+    symlinks from reaching another user's songs.
+    """
+    root = user_dir(user).resolve()
+    path = (root / slug).resolve()
+    if not path.is_relative_to(root) or not (path / "manifest.json").exists():
         raise HTTPException(404, "no such track")
     return path
 
@@ -345,21 +346,21 @@ def health():
     Sits behind the same token check as everything else, so a successful probe
     also proves the credentials work.
     """
-    return {"service": "stems", "version": 1, "requires_token": bool(API_TOKEN)}
+    return {"service": "stems", "version": 2, "auth": "session"}
 
 
 @app.get("/api/library/{slug}/scene")
-def get_scene(slug: str):
-    scene_path = _job_dir(slug) / "scene.json"
+def get_scene(slug: str, user: dict = Depends(current_user)):
+    scene_path = _job_dir(user, slug) / "scene.json"
     if not scene_path.exists():
         return {}
     return json.loads(scene_path.read_text())
 
 
 @app.put("/api/library/{slug}/scene")
-def put_scene(slug: str, scene: dict):
+def put_scene(slug: str, scene: dict, user: dict = Depends(current_user)):
     """Stored verbatim. The client owns the scene's shape, not the server."""
-    scene_path = _job_dir(slug) / "scene.json"
+    scene_path = _job_dir(user, slug) / "scene.json"
     scene_path.write_text(json.dumps(scene, indent=2))
     return {"saved": True}
 
@@ -370,8 +371,23 @@ def index():
 
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-# StaticFiles handles Range requests, which the browser needs to seek audio.
-app.mount("/files", StaticFiles(directory=str(OUT_DIR)), name="files")
+
+
+@app.get("/files/{slug}/{relative:path}")
+def stem_file(slug: str, relative: str, user: dict = Depends(current_user)):
+    """Serve one file from one of this user's tracks.
+
+    This used to be a StaticFiles mount over the whole output directory, which
+    with accounts would have let any signed-in user read any other's songs by
+    guessing a path. The URL carries no user id: the tree comes from the
+    session, so it cannot be pointed somewhere else.
+    """
+    root = _job_dir(user, slug)
+    path = (root / relative).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise HTTPException(404, "no such file")
+    # FileResponse answers Range requests, which audio seeking depends on.
+    return FileResponse(path)
 
 
 def _local_ip() -> str:
@@ -442,7 +458,12 @@ def serve(port: int = 8000, host: str = "0.0.0.0", bonjour: bool | None = None) 
         print("         advertised over Bonjour; the app should find it itself")
     else:
         print("         Bonjour off — clients need the address or the public hostname")
-    print(f"         token auth: {'on' if API_TOKEN else 'OFF (fine on a home network)'}")
+    from . import auth, db
+    db.purge_expired()
+    accounts = len(db.all_users())
+    print(f"         accounts: {accounts}"
+          f"{' (create one in the app)' if accounts == 0 else ''}")
+    print(f"         reset email: {'configured' if auth.smtp_configured() else 'not configured (codes print here)'}")
 
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")

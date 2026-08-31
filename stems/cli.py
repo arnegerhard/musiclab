@@ -89,6 +89,52 @@ def _recompress(out_dir: Path, audio_format: str) -> int:
     return 0
 
 
+def _accounts(args) -> int:
+    """Account admin. Kept out of the server so it works with it stopped."""
+    import getpass
+
+    from . import auth, users
+
+    try:
+        if args.add_user:
+            password = getpass.getpass("Password: ")
+            if password != getpass.getpass("Repeat: "):
+                print("Those did not match.", file=sys.stderr)
+                return 1
+            user = users.create(args.add_user, password)
+            print(f'Created {user["email"]} ({user["id"]})')
+
+        if args.claim:
+            moved = users.claim(args.claim)
+            print(f"Moved {moved} track(s) to {args.claim}.")
+
+        if args.list_users:
+            rows = users.listing()
+            if not rows:
+                print("No accounts yet.")
+            else:
+                print(f'{"email":<32}{"sign-in":<12}{"tracks":>7}  id')
+                print("-" * 72)
+                for user in rows:
+                    methods = []
+                    if user["password_hash"]:
+                        methods.append("password")
+                    if user["apple_sub"]:
+                        methods.append("apple")
+                    print(
+                        f'{(user["email"] or "-"):<32}{"+".join(methods) or "-":<12}'
+                        f'{user["tracks"]:>7}  {user["id"]}'
+                    )
+            orphans = users.orphan_tracks()
+            if orphans:
+                print(f"\n{len(orphans)} track(s) predate accounts. Assign them with:")
+                print("  python -m stems.cli --claim you@example.com")
+    except auth.AuthError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="stems",
@@ -126,6 +172,17 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--serve", action="store_true", help="start the web app instead"
     )
+    parser.add_argument(
+        "--add-user", metavar="EMAIL", help="create an account (prompts for a password)"
+    )
+    parser.add_argument(
+        "--list-users", action="store_true", help="show accounts and their track counts"
+    )
+    parser.add_argument(
+        "--claim",
+        metavar="EMAIL",
+        help="move tracks separated before accounts existed to this account",
+    )
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(
         "--no-bonjour",
@@ -142,6 +199,9 @@ def main(argv=None) -> int:
             marker = "  (default)" if key == DEFAULT_FORMAT else ""
             print(f"{key:<12}{fmt.extension:<8}{kind:<12}{fmt.note}{marker}")
         return 0
+
+    if args.add_user or args.list_users or args.claim:
+        return _accounts(args)
 
     if args.serve:
         from .server import serve

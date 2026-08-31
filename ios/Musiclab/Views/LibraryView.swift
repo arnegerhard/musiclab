@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LibraryView: View {
     @Environment(StemsClient.self) private var client
+    @Environment(Account.self) private var account
     @State private var entries: [LibraryEntry] = []
     @State private var error: String?
     @State private var loading = true
@@ -32,7 +33,14 @@ struct LibraryView: View {
         .navigationDestination(for: LibraryEntry.self) { PlayerView(entry: $0) }
         .toolbar {
             Menu {
+                if let email = account.user?.email {
+                    Text(email)
+                }
+                Button("Sign out", systemImage: "person.crop.circle.badge.xmark") {
+                    Task { await account.signOut() }
+                }
                 Button("Disconnect", systemImage: "xmark.circle") {
+                    Task { await account.signOut() }
                     client.baseURL = nil
                 }
             } label: {

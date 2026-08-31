@@ -26,18 +26,18 @@ final class StemsClient {
 
     private(set) var downloadProgress: Double = 0
 
-    /// Sent as a bearer token when the server asks for one. A token typed in
-    /// by hand wins over the one baked into the build.
+    /// The session token from signing in. Lives in the keychain, never in
+    /// UserDefaults, and is sent as a bearer token on every request.
     var token: String {
-        get {
-            Keychain.read("serverToken")
-                ?? (Bundle.main.object(forInfoDictionaryKey: "MusiclabCloudToken") as? String ?? "")
-        }
+        get { Keychain.read("sessionToken") ?? "" }
         set {
-            newValue.isEmpty ? Keychain.delete("serverToken")
-                             : Keychain.write("serverToken", value: newValue)
+            newValue.isEmpty ? Keychain.delete("sessionToken")
+                             : Keychain.write("sessionToken", value: newValue)
         }
     }
+
+    /// Who is signed in, or nil. Set by Account after a successful call.
+    var user: Account.User?
 
     init() {
         if let saved = UserDefaults.standard.string(forKey: "baseURL") {
