@@ -9,6 +9,7 @@ can be. Both are therefore swappable, and `server.py` only ever talks to the
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
@@ -20,6 +21,7 @@ class MemoryJobStore:
     def __init__(self):
         self._jobs: dict[str, dict] = {}
         self._batches: dict[str, dict] = {}
+        self._workers: dict[str, dict] = {}
         self._lock = threading.Lock()
 
     def create(self, job_id: str, data: dict) -> None:
@@ -40,6 +42,23 @@ class MemoryJobStore:
         with self._lock:
             if job_id in self._jobs:
                 self._jobs[job_id].setdefault("log", []).append(message)
+
+    def register_worker(self, user_id: str, info: dict) -> str:
+        worker_id = info.get("worker_id") or f"{user_id[:6]}-{info.get('name','mac')}"
+        with self._lock:
+            self._workers[worker_id] = {
+                **info, "worker_id": worker_id, "user_id": user_id, "seen": time.time()
+            }
+        return worker_id
+
+    def workers(self, user_id: str) -> list[dict]:
+        """Only those heard from recently; a worker that stops calling is gone."""
+        cutoff = time.time() - 60
+        with self._lock:
+            return [
+                w for w in self._workers.values()
+                if w["user_id"] == user_id and w["seen"] > cutoff
+            ]
 
     def awaiting_fetch(self, user_id: str) -> list[str]:
         """Jobs this user has parked for an agent, oldest first."""

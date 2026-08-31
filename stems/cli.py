@@ -92,18 +92,20 @@ def _agent(args) -> int:
     import getpass
     import os
 
-    from .agent import Agent, sign_in
+    from .agent import Agent, Worker, sign_in
 
+    url = args.worker or args.agent
     email = args.email or input("Account email: ").strip()
     password = os.environ.get("MUSICLAB_PASSWORD") or getpass.getpass("Password: ")
     try:
-        token = sign_in(args.agent, email, password)
+        token = sign_in(url, email, password)
     except Exception as exc:
         print(f"Could not sign in: {exc}", file=sys.stderr)
         return 1
 
+    helper = Worker(url, token) if args.worker else Agent(url, token)
     try:
-        Agent(args.agent, token).run()
+        helper.run()
     except KeyboardInterrupt:
         print("\nAgent stopped.")
     except RuntimeError as exc:
@@ -197,6 +199,11 @@ def main(argv=None) -> int:
         metavar="SERVER_URL",
         help="fetch audio for a deployed server that cannot reach YouTube",
     )
+    parser.add_argument(
+        "--worker",
+        metavar="SERVER_URL",
+        help="join the swarm: fetch and separate on this Mac, keeping nothing",
+    )
     parser.add_argument("--email", help="account to sign the agent in as")
     parser.add_argument(
         "--serve", action="store_true", help="start the web app instead"
@@ -229,7 +236,7 @@ def main(argv=None) -> int:
             print(f"{key:<12}{fmt.extension:<8}{kind:<12}{fmt.note}{marker}")
         return 0
 
-    if args.agent:
+    if args.agent or args.worker:
         return _agent(args)
 
     if args.add_user or args.list_users or args.claim:

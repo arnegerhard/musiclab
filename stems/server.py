@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import tarfile
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -274,6 +277,135 @@ def find_match(track: PlaylistTrack, user: dict = Depends(current_user)):
 
 class FetchFailure(BaseModel):
     error: str
+
+
+class WorkerInfo(BaseModel):
+    """What a worker says about itself when it checks in."""
+
+    name: str = ""
+    chip: str = ""
+    cores: int = 0
+    memory_gb: float = 0
+    gpu: bool = False
+    version: str = ""
+    busy: bool = False
+
+
+@app.post("/api/workers/register")
+def register_worker(info: WorkerInfo, user: dict = Depends(current_user)):
+    """Announce a machine that can separate. Registration is a heartbeat, not
+    a reservation: a worker that stops calling simply stops being offered work."""
+    worker_id = jobs.store.register_worker(user["id"], info.model_dump())
+    return {"worker_id": worker_id, "poll_seconds": 5}
+
+
+@app.get("/api/workers")
+def list_workers(user: dict = Depends(current_user)):
+    return jobs.store.workers(user["id"])
+
+
+@app.get("/api/work/next")
+def next_work(worker_id: str = "", user: dict = Depends(current_user)):
+    """Claim a whole job: fetch it, separate it, send the stems back.
+
+    The same queue the fetch-only agent draws from. Whichever kind of helper
+    claims first decides where the separation happens -- a worker keeps it on
+    its own GPU, a fetch agent leaves it to the deployment's.
+    """
+    for job_id in jobs.store.awaiting_fetch(user["id"]):
+        job = jobs.store.get(job_id)
+        if job is None or job.get("status") != "awaiting_fetch":
+            continue
+        jobs.store.update(
+            job_id,
+            status="claimed",
+            phase="Separating on a worker",
+            worker_id=worker_id,
+            claimed_at=time.time(),
+        )
+        request = job.get("request", {})
+        return {
+            "job_id": job_id,
+            "url": request.get("url"),
+            "track": request.get("track"),
+            "audio_format": request.get("audio_format", DEFAULT_FORMAT),
+            "split_vocals": request.get("split_vocals", True),
+            "split_drums": request.get("split_drums", True),
+        }
+    return {"job_id": None}
+
+
+@app.post("/api/work/{job_id}/result")
+async def deliver_work(
+    job_id: str,
+    archive: UploadFile = File(...),
+    slug: str = Form(...),
+    user: dict = Depends(current_user),
+):
+    """Unpack a finished song a worker separated on its own hardware."""
+    job = jobs.store.get(job_id)
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+
+    safe = Path(slug).name
+    if not safe or safe.startswith("."):
+        raise HTTPException(400, "bad slug")
+
+    root = user_dir(user)
+    staging = root / f".incoming-{uuid.uuid4().hex[:8]}"
+    staging.mkdir(parents=True, exist_ok=True)
+    bundle = staging / "result.tar"
+    with bundle.open("wb") as handle:
+        while chunk := await archive.read(1 << 20):
+            handle.write(chunk)
+
+    try:
+        with tarfile.open(bundle) as tar:
+            for member in tar.getmembers():
+                # A worker is another machine; treat its archive as untrusted
+                # and refuse anything that would write outside the job folder.
+                target = (staging / member.name).resolve()
+                if not target.is_relative_to(staging.resolve()) or member.issym() or member.islnk():
+                    raise HTTPException(400, "the archive contains an unsafe path")
+            tar.extractall(staging, filter="data")
+    except tarfile.TarError as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise HTTPException(400, f"could not read the archive: {exc}") from exc
+    finally:
+        bundle.unlink(missing_ok=True)
+
+    unpacked = staging / safe
+    if not (unpacked / "manifest.json").exists():
+        shutil.rmtree(staging, ignore_errors=True)
+        raise HTTPException(400, "the archive has no manifest")
+
+    destination = root / safe
+    if destination.exists():
+        shutil.rmtree(destination, ignore_errors=True)
+    shutil.move(str(unpacked), str(destination))
+    shutil.rmtree(staging, ignore_errors=True)
+    jobs.publish()
+
+    manifest = json.loads((destination / "manifest.json").read_text())
+    jobs.store.update(
+        job_id, status="done", phase="Done", slug=safe, manifest=manifest,
+        title=manifest.get("title"),
+    )
+    return {"ok": True}
+
+
+@app.post("/api/work/{job_id}/failed")
+def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(current_user)):
+    """Hand the job back rather than failing it: another worker may manage."""
+    job = jobs.store.get(job_id)
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+    jobs.store.update(
+        job_id, status="awaiting_fetch", phase="Waiting for a worker",
+        worker_id=None,
+    )
+    jobs.store.append_log(job_id, f"A worker gave up: {body.error}")
+    return {"ok": True}
 
 
 @app.get("/api/fetch/next")

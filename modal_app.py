@@ -125,6 +125,28 @@ class ModalJobStore:
             job.setdefault("log", []).append(message)
             self._d[f"job:{job_id}"] = job
 
+    def register_worker(self, user_id: str, info: dict) -> str:
+        import time
+
+        worker_id = info.get("worker_id") or f"{user_id[:6]}-{info.get('name', 'mac')}"
+        self._d[f"worker:{worker_id}"] = {
+            **info, "worker_id": worker_id, "user_id": user_id, "seen": time.time()
+        }
+        return worker_id
+
+    def workers(self, user_id: str) -> list[dict]:
+        import time
+
+        cutoff = time.time() - 60
+        found = []
+        for key in self._d.keys():
+            if not str(key).startswith("worker:"):
+                continue
+            worker = self._d.get(key)
+            if worker and worker.get("user_id") == user_id and worker.get("seen", 0) > cutoff:
+                found.append(worker)
+        return found
+
     def awaiting_fetch(self, user_id: str) -> list[str]:
         found = []
         for key in self._d.keys():
