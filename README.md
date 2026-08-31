@@ -236,11 +236,14 @@ xcrun simctl launch <udid> info.jetsons.musiclab --args -distribution appStore
 `modal_app.py` deploys the same pipeline to Modal, where separation runs on an
 A100 rather than the Mac's GPU.
 
+The client installs into the project venv, so it is not on your PATH unless
+you ask for it separately (`uv tool install modal`):
+
 ```bash
 uv pip install modal
-modal token new                        # once, opens a browser
-modal deploy modal_app.py
-modal run modal_app.py --email you@example.com --password ...
+.venv/bin/modal token new                   # once, opens a browser
+.venv/bin/modal deploy modal_app.py
+.venv/bin/modal run modal_app.py --email you@example.com --password ...
 ```
 
 Then point the app at the printed `https://….modal.run` URL.
