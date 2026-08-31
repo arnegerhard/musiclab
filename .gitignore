@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+*.pyc
+
+# Generated audio and model weights — gigabytes, all reproducible
+out/
+models/
+
+# Xcode. The project is generated from project.yml by xcodegen, so it is not
+# tracked; run `xcodegen generate` after cloning.
+ios/build/
+ios/*.xcodeproj/
+DerivedData/
+xcuserdata/
+
+.DS_Store
+ios/Musiclab/Info.plist

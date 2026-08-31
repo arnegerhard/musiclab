@@ -1,0 +1,415 @@
+"""Local web app: paste a URL, watch it work, mix the stems in the browser."""
+
+from __future__ import annotations
+
+import json
+import threading
+import traceback
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from . import match, pipeline
+from .config import DEFAULT_FORMAT, OUT_DIR
+
+SERVICE_TYPE = "_stems._tcp.local."
+
+WEB_DIR = Path(__file__).parent / "web"
+
+app = FastAPI(title="stems")
+
+# Separation saturates the machine, so one job at a time; the rest queue.
+_executor = ThreadPoolExecutor(max_workers=1)
+_jobs: dict[str, dict] = {}
+_requests: dict[str, "JobRequest"] = {}
+_batches: dict[str, list[str]] = {}
+_lock = threading.Lock()
+
+
+class PlaylistTrack(BaseModel):
+    """A track chosen in a playlist, before we know where its audio lives."""
+
+    title: str
+    artist: str = ""
+    duration: float | None = None
+    source: str = ""       # "apple" | "spotify"
+    source_id: str = ""
+
+
+class JobRequest(BaseModel):
+    # Either a direct URL, or a playlist track we have to match first.
+    url: str | None = None
+    track: PlaylistTrack | None = None
+    split_vocals: bool = True
+    split_drums: bool = True
+    audio_format: str = DEFAULT_FORMAT
+    # Low-confidence matches stop and ask rather than separating the wrong song.
+    require_confident: bool = True
+
+
+class BatchRequest(BaseModel):
+    tracks: list[PlaylistTrack]
+    split_vocals: bool = True
+    split_drums: bool = True
+    audio_format: str = DEFAULT_FORMAT
+    require_confident: bool = True
+
+
+class ConfirmRequest(BaseModel):
+    video_id: str
+
+
+def _update(job_id: str, **fields):
+    with _lock:
+        _jobs[job_id].update(fields)
+
+
+def _append_log(job_id: str, message: str):
+    with _lock:
+        _jobs[job_id]["log"].append(message)
+
+
+def _candidate_json(candidate: match.Candidate) -> dict:
+    return {
+        "video_id": candidate.video_id,
+        "title": candidate.title,
+        "channel": candidate.channel,
+        "duration": candidate.duration,
+        "score": candidate.score,
+        "reasons": candidate.reasons,
+        "url": candidate.url,
+        "confident": candidate.confident,
+    }
+
+
+def _resolve(job_id: str, request: JobRequest) -> str | None:
+    """Turn a playlist track into a YouTube URL, or park the job for review."""
+    if request.url:
+        return request.url
+    track = request.track
+    if track is None:
+        _update(job_id, status="error", phase="Failed", error="no url or track given")
+        return None
+
+    _update(job_id, phase=f"Finding audio for {track.title}")
+    candidates = match.search(track.title, track.artist, track.duration)
+    if not candidates:
+        _update(job_id, status="error", phase="Failed", error="no match found")
+        return None
+
+    best = candidates[0]
+    _update(job_id, match=_candidate_json(best),
+            candidates=[_candidate_json(c) for c in candidates[:5]])
+
+    if request.require_confident and not best.confident:
+        # Separating the wrong recording wastes ten minutes and sounds wrong,
+        # so an uncertain match waits for a human instead.
+        _update(job_id, status="needs_confirmation", phase="Confirm the match")
+        _append_log(job_id, f'Unsure: "{best.title}" scored {best.score}')
+        return None
+
+    _append_log(job_id, f'Matched "{best.title}" ({best.channel})')
+    return best.url
+
+
+def _run_job(job_id: str, request: JobRequest):
+    _update(job_id, status="running", phase="Starting")
+    url = _resolve(job_id, request)
+    if url is None:
+        return
+    _run_separation(job_id, request, url)
+
+
+def _run_separation(job_id: str, request: JobRequest, url: str):
+    _update(job_id, status="running", phase="Downloading audio")
+
+    def progress(event):
+        kind = event.get("kind")
+        if kind == "download_progress":
+            _update(job_id, progress=round(event["fraction"], 3))
+        elif kind == "download_done":
+            _update(job_id, phase="Audio downloaded", title=event["title"], progress=0)
+            _append_log(job_id, f'Downloaded "{event["title"]}"')
+        elif kind == "model_load":
+            _update(job_id, phase=f'Loading model {event["model"]}')
+        elif kind == "stage_start":
+            _update(
+                job_id,
+                phase=f'{event["title"]} ({event["index"] + 1}/{event["total"]})',
+            )
+        elif kind == "stage_done":
+            _append_log(job_id, f'{event["stage"]}: {", ".join(event["stems"])}')
+        elif kind == "stage_skipped":
+            _append_log(job_id, f'Skipped {event["stage"]}: {event["reason"]}')
+        elif kind == "preview_failed":
+            _append_log(job_id, f'No preview encoded for {event["stem"]}')
+        elif kind == "stem_missing":
+            _append_log(job_id, f'Warning: {event["file"]} went missing')
+        elif kind == "analyse_start":
+            _update(job_id, phase="Measuring levels")
+
+    with _lock:
+        matched = _jobs[job_id].get("match")
+    extra = {"matched_from": matched, "playlist_track": request.track.model_dump()} if request.track else None
+
+    try:
+        result = pipeline.run(
+            url,
+            out_dir=OUT_DIR,
+            split_vocals=request.split_vocals,
+            split_drums=request.split_drums,
+            audio_format=request.audio_format,
+            progress=progress,
+            extra=extra,
+        )
+        _update(
+            job_id,
+            status="done",
+            phase="Done",
+            slug=result.job_dir.name,
+            manifest=result.manifest,
+        )
+    except Exception as exc:
+        traceback.print_exc()
+        _update(job_id, status="error", phase="Failed", error=str(exc))
+
+
+def _enqueue(request: JobRequest) -> str:
+    job_id = uuid.uuid4().hex[:12]
+    with _lock:
+        _jobs[job_id] = {
+            "id": job_id,
+            "status": "queued",
+            "phase": "Queued",
+            "progress": 0,
+            "url": request.url,
+            "title": request.track.title if request.track else None,
+            "artist": request.track.artist if request.track else None,
+            "log": [],
+        }
+        _requests[job_id] = request
+    _executor.submit(_run_job, job_id, request)
+    return job_id
+
+
+@app.post("/api/match")
+def find_match(track: PlaylistTrack):
+    """Preview what a playlist track would be matched to, without separating."""
+    candidates = match.search(track.title, track.artist, track.duration)
+    return {"candidates": [_candidate_json(c) for c in candidates[:5]]}
+
+
+@app.post("/api/jobs")
+def create_job(request: JobRequest):
+    if not (request.url and request.url.strip()) and request.track is None:
+        raise HTTPException(400, "give either a url or a track")
+    return {"id": _enqueue(request)}
+
+
+@app.post("/api/jobs/{job_id}/confirm")
+def confirm_job(job_id: str, choice: ConfirmRequest):
+    """Accept one of the offered matches and let the job continue."""
+    with _lock:
+        job = _jobs.get(job_id)
+        request = _requests.get(job_id)
+        if job is None or request is None:
+            raise HTTPException(404, "no such job")
+        if job["status"] != "needs_confirmation":
+            raise HTTPException(409, "this job is not waiting for confirmation")
+        chosen = next(
+            (c for c in job.get("candidates", []) if c["video_id"] == choice.video_id),
+            None,
+        )
+        if chosen is None:
+            raise HTTPException(400, "that match was not offered for this job")
+        job["match"] = chosen
+        job["status"] = "queued"
+        job["phase"] = "Queued"
+
+    _executor.submit(_run_separation, job_id, request, chosen["url"])
+    return {"ok": True}
+
+
+@app.post("/api/batch")
+def create_batch(request: BatchRequest):
+    """Queue a whole playlist selection. Jobs run one at a time."""
+    if not request.tracks:
+        raise HTTPException(400, "no tracks given")
+    ids = [
+        _enqueue(
+            JobRequest(
+                track=track,
+                split_vocals=request.split_vocals,
+                split_drums=request.split_drums,
+                audio_format=request.audio_format,
+                require_confident=request.require_confident,
+            )
+        )
+        for track in request.tracks
+    ]
+    batch_id = uuid.uuid4().hex[:12]
+    with _lock:
+        _batches[batch_id] = ids
+    return {"id": batch_id, "jobs": ids}
+
+
+@app.get("/api/batch/{batch_id}")
+def get_batch(batch_id: str):
+    with _lock:
+        ids = _batches.get(batch_id)
+        if ids is None:
+            raise HTTPException(404, "no such batch")
+        return {"id": batch_id, "jobs": [dict(_jobs[i]) for i in ids if i in _jobs]}
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: str):
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(404, "no such job")
+        return dict(job)
+
+
+@app.get("/api/library")
+def library():
+    """Previously separated tracks still sitting in the output directory."""
+    entries = []
+    if OUT_DIR.exists():
+        for manifest_path in sorted(
+            OUT_DIR.glob("*/manifest.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        ):
+            try:
+                manifest = json.loads(manifest_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            entries.append(
+                {
+                    "slug": manifest_path.parent.name,
+                    "title": manifest.get("title", manifest_path.parent.name),
+                    "uploader": manifest.get("uploader", ""),
+                    "duration": manifest.get("duration", 0),
+                    "stem_count": len(manifest.get("stems", [])),
+                }
+            )
+    return entries
+
+
+@app.get("/api/library/{slug}")
+def library_entry(slug: str):
+    manifest_path = (OUT_DIR / slug / "manifest.json").resolve()
+    # Keep a crafted slug from walking out of the output directory.
+    if not manifest_path.is_relative_to(OUT_DIR.resolve()) or not manifest_path.exists():
+        raise HTTPException(404, "no such track")
+    return json.loads(manifest_path.read_text())
+
+
+def _job_dir(slug: str) -> Path:
+    """Resolve a slug to its job directory, refusing anything outside OUT_DIR."""
+    path = (OUT_DIR / slug).resolve()
+    if not path.is_relative_to(OUT_DIR.resolve()) or not path.is_dir():
+        raise HTTPException(404, "no such track")
+    return path
+
+
+@app.get("/api/health")
+def health():
+    """Lets the iOS app confirm a discovered host is really a stems server."""
+    return {"service": "stems", "version": 1}
+
+
+@app.get("/api/library/{slug}/scene")
+def get_scene(slug: str):
+    scene_path = _job_dir(slug) / "scene.json"
+    if not scene_path.exists():
+        return {}
+    return json.loads(scene_path.read_text())
+
+
+@app.put("/api/library/{slug}/scene")
+def put_scene(slug: str, scene: dict):
+    """Stored verbatim. The client owns the scene's shape, not the server."""
+    scene_path = _job_dir(slug) / "scene.json"
+    scene_path.write_text(json.dumps(scene, indent=2))
+    return {"saved": True}
+
+
+@app.get("/")
+def index():
+    return FileResponse(WEB_DIR / "index.html")
+
+
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+# StaticFiles handles Range requests, which the browser needs to seek audio.
+app.mount("/files", StaticFiles(directory=str(OUT_DIR)), name="files")
+
+
+def _local_ip() -> str:
+    """Best guess at this machine's LAN address, for the QR/manual fallback."""
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # No packets are sent; this just picks the interface that would route out.
+        sock.connect(("192.168.0.1", 1))
+        return sock.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        sock.close()
+
+
+def _advertise(port: int):
+    """Publish over Bonjour so the phone does not need a typed-in IP."""
+    try:
+        import socket
+
+        from zeroconf import ServiceInfo, Zeroconf
+
+        # gethostname() can come back as a full DHCP-suffixed name
+        # ("Mac.hsd1.ca.comcast.net"); Bonjour wants the short label plus
+        # ".local.", so anything after the first dot has to go.
+        short = socket.gethostname().split(".")[0].replace(" ", "-") or "mac"
+        address = _local_ip()
+        info = ServiceInfo(
+            SERVICE_TYPE,
+            f"stems on {short}.{SERVICE_TYPE}",
+            addresses=[socket.inet_aton(address)],
+            port=port,
+            properties={"version": "1"},
+            server=f"{short}.local.",
+        )
+        zeroconf = Zeroconf()
+        # A previous run killed before it could unregister still holds the
+        # name for a while, so let zeroconf pick "… (2)" rather than refusing.
+        zeroconf.register_service(info, allow_name_change=True)
+        return zeroconf, info
+    except Exception as exc:  # discovery is a convenience, never fatal
+        print(f"(Bonjour advertising unavailable: {type(exc).__name__}: {exc})")
+        return None, None
+
+
+def serve(port: int = 8000, host: str = "0.0.0.0") -> int:
+    """Serve on all interfaces by default: the iOS app connects over the LAN."""
+    import uvicorn
+
+    zeroconf, info = _advertise(port)
+    address = _local_ip()
+    print(f"stems -> http://127.0.0.1:{port}   (this Mac)")
+    print(f"         http://{address}:{port}   (iPhone, same Wi-Fi)")
+    if zeroconf:
+        print("         advertised over Bonjour; the iOS app should find it itself")
+    try:
+        uvicorn.run(app, host=host, port=port, log_level="warning")
+    finally:
+        if zeroconf and info:
+            zeroconf.unregister_service(info)
+            zeroconf.close()
+    return 0
