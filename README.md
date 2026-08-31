@@ -281,9 +281,24 @@ outside the job folder, or any link, is refused before extraction.
 ```
 
 Produces `dist/Musiclab Worker.app`, about 1 GB, that needs **nothing
-installed** -- Python, PyTorch and ffmpeg are all inside. Open it and it asks
-for a server and an account, exchanges the password for a token it keeps in the
-login keychain, and works in the background.
+installed** -- Python, PyTorch and ffmpeg are all inside.
+
+It lives in the menu bar. The icon is the light: **green when idle, red while
+it works**, orange on a problem, hollow when it is not running. Opening it
+shows the song, what is being done to it, and how far along -- fetching,
+each of the three separation stages, encoding, packing, sending back -- with a
+progress bar. The first run shows the same bar for the ~1.3 GB of models,
+which are fetched up front so a new worker says what it is waiting for rather
+than appearing to hang on its first song.
+
+It asks for a server and an account once, exchanges the password for a token
+kept in the login keychain, and keeps the worker running, restarting it if the
+machine sleeps or the network goes away.
+
+The Swift app and the Python worker talk through a status file rather than a
+socket, because either can restart without the other, and a file is still
+there to read when one of them was not running. Writes are atomic, so the UI
+never catches a half-written line.
 
 Models (~1.3 GB) download on first run rather than shipping in the bundle, so
 they are not paid for twice by anyone who already has them. They land in

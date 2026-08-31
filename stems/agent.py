@@ -20,8 +20,9 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from . import download, match, pipeline
+from . import download, match, models, pipeline
 from .media import ensure_on_path
+from .status import Status
 
 
 class Agent:
@@ -30,6 +31,9 @@ class Agent:
         self.token = token
         self.poll_seconds = poll_seconds
         self.worker_id = ""
+        self.status = None
+        self._song = ""
+        self._done = 0
 
     # MARK: transport
 
@@ -220,6 +224,8 @@ class Worker(Agent):
 
         job_id = job["job_id"]
         url, track = job.get("url"), job.get("track")
+        title = (track or {}).get("title", "") if track else ""
+        self.status.working("Finding the song", song=title, progress=0.02)
 
         if not url and track:
             progress(f"  matching \"{track['title']}\"")
@@ -234,6 +240,7 @@ class Worker(Agent):
         with tempfile.TemporaryDirectory() as staging:
             out = Path(staging)
             progress("  separating locally")
+            self.status.working("Separating", song=title, progress=0.05)
             result = pipeline.run(
                 url,
                 out_dir=out,
@@ -245,10 +252,15 @@ class Worker(Agent):
 
             bundle = out / "result.tar"
             progress("  packing")
+            self.status.working("Packing the stems", song=self._song, progress=0.9)
             with tarfile.open(bundle, "w") as tar:
                 tar.add(result.job_dir, arcname=result.job_dir.name)
             size = bundle.stat().st_size / 1e6
             progress(f"  uploading {size:.0f} MB")
+            self.status.working(
+                "Sending the stems back", detail=f"{size:.0f} MB",
+                song=self._song, progress=0.95,
+            )
             self._post_file(
                 f"/api/work/{job_id}/result",
                 bundle,
@@ -259,20 +271,58 @@ class Worker(Agent):
             shutil.rmtree(result.job_dir, ignore_errors=True)
         progress("  handed over")
 
-    @staticmethod
-    def _note(event: dict, progress) -> None:
+    def _note(self, event: dict, progress) -> None:
+        """Turn pipeline events into something a person can read."""
         kind = event.get("kind")
-        if kind == "stage_start":
-            progress(f"    {event['title']}")
+        if kind == "download_progress":
+            self.status.working(
+                "Downloading the song", song=self._song,
+                progress=0.02 + 0.06 * float(event.get("fraction", 0)),
+            )
         elif kind == "download_done":
-            progress(f"    got \"{event['title']}\"")
+            self._song = event.get("title", self._song)
+            progress(f"    got \"{self._song}\"")
+            self.status.working("Downloaded", song=self._song, progress=0.08)
+        elif kind == "stage_start":
+            progress(f"    {event['title']}")
+            # The three stages occupy the middle of the bar.
+            share = event.get("index", 0) / max(1, event.get("total", 1))
+            self.status.working(
+                "Separating", detail=event["title"], song=self._song,
+                progress=0.10 + 0.70 * share,
+            )
+        elif kind == "encode_start":
+            self.status.working(
+                "Encoding the stems", song=self._song, progress=0.82
+            )
+        elif kind == "analyse_start":
+            self.status.working(
+                "Measuring levels", song=self._song, progress=0.88
+            )
 
     def run(self, once: bool = False, progress=print) -> None:
         ensure_on_path()
+        self.status = Status()
+        self._song = ""
+        self._done = 0
+        ensure_on_path()
+
         self.worker_id = self.register()
-        progress(f"Worker {self.worker_id} watching {self.base}")
         info = self.describe()
+        self.status.set(worker=info["name"], server=self.base)
+        progress(f"Worker {self.worker_id} watching {self.base}")
         progress(f"  {info['chip']}, {info['cores']} cores, GPU: {info['gpu']}")
+
+        # Up front, so a fresh worker says what it is waiting for rather than
+        # appearing to hang for several minutes on its first song.
+        from .config import MODEL_DIR
+
+        if models.missing(MODEL_DIR):
+            progress("  fetching the separation models")
+            self.status.downloading_models(0, models.EXPECTED_TOTAL_BYTES)
+            models.prefetch(MODEL_DIR, progress=self.status.downloading_models)
+
+        self.status.idle(songs_done=self._done)
         while True:
             job = self.claim()
             if job is None:
@@ -283,6 +333,7 @@ class Worker(Agent):
                 time.sleep(self.poll_seconds)
                 continue
             progress(f"job {job['job_id']}")
+            self._song = ""
             self.register(busy=True)
             # Separation takes minutes; without a heartbeat the worker would
             # drop off the roster exactly while it is doing the work.
@@ -294,12 +345,16 @@ class Worker(Agent):
                 self.handle(job, progress=progress)
             except Exception as exc:
                 progress(f"  failed: {exc}")
+                self.status.failed(str(exc)[:200])
                 try:
                     self._post_json(f"/api/work/{job['job_id']}/failed", {"error": str(exc)})
                 except Exception:
                     pass
+            else:
+                self._done += 1
             finally:
                 stop.set()
+                self.status.idle(songs_done=self._done)
             if once:
                 return
 

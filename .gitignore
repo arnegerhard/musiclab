@@ -26,3 +26,5 @@ musiclab.db-wal
 
 # Built worker bundles
 dist/
+macos/build/
+macos/*.xcodeproj/

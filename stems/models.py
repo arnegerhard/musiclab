@@ -71,3 +71,78 @@ def resolve(
             )
             return ranked[0]
     return None
+
+
+# Only used to draw the progress bar. audio-separator's downloader reports
+# nothing, so progress is inferred from how much the model directory has
+# grown, and that needs a target to divide by. Being a little off makes the
+# bar slightly wrong, which is why the UI says "about".
+EXPECTED_TOTAL_BYTES = 1_400_000_000
+
+
+def missing(model_dir) -> list[str]:
+    """Which stage models are not on disk yet."""
+    from pathlib import Path
+
+    from .config import ALL_STAGES
+
+    directory = Path(model_dir)
+    absent = []
+    for stage in ALL_STAGES:
+        name = resolve(stage.preferred, stage.model_keywords)
+        if name and not (directory / name).exists():
+            absent.append(name)
+    return absent
+
+
+def directory_bytes(path) -> int:
+    from pathlib import Path
+
+    root = Path(path)
+    if not root.exists():
+        return 0
+    return sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
+
+
+def prefetch(model_dir, progress=None) -> None:
+    """Download whatever stage models are missing, reporting progress.
+
+    Done up front rather than on first use so a fresh worker can say what it is
+    waiting for, instead of appearing to hang for several minutes on its first
+    song.
+    """
+    import logging
+    import threading
+    import time
+    from pathlib import Path
+
+    directory = Path(model_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    absent = missing(directory)
+    if not absent:
+        return
+
+    from audio_separator.separator import Separator
+
+    separator = Separator(
+        log_level=logging.ERROR, model_file_dir=str(directory), output_dir="/tmp"
+    )
+
+    started = directory_bytes(directory)
+    finished = threading.Event()
+
+    def watch():
+        while not finished.wait(0.5):
+            if progress:
+                progress(directory_bytes(directory) - started, EXPECTED_TOTAL_BYTES)
+
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        for name in absent:
+            separator.download_model_files(name)
+    finally:
+        finished.set()
+        watcher.join(timeout=2)
+    if progress:
+        progress(EXPECTED_TOTAL_BYTES, EXPECTED_TOTAL_BYTES)

@@ -1,0 +1,34 @@
+name: MusiclabWorker
+options:
+  bundleIdPrefix: info.jetsons
+  deploymentTarget:
+    # @Observable needs 14. Every Apple silicon Mac runs well past it, so this
+    # costs no hardware that could have joined the swarm.
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+targets:
+  MusiclabWorker:
+    type: application
+    platform: macOS
+    sources:
+      - path: MusiclabWorker
+    info:
+      path: MusiclabWorker/Info.plist
+      properties:
+        CFBundleName: Musiclab Worker
+        CFBundleDisplayName: Musiclab Worker
+        # Lives in the menu bar, so no Dock icon and no window on launch.
+        LSUIElement: true
+        NSHumanReadableCopyright: ""
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: info.jetsons.musiclab.worker
+        PRODUCT_NAME: Musiclab Worker
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        CODE_SIGN_IDENTITY: "-"
