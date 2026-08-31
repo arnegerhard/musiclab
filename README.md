@@ -67,12 +67,6 @@ Models (about 700 MB total) download themselves on first run and are cached in
 
 The web app — paste a URL, watch it work, then mix in the browser:
 
-```bash
-.venv/bin/python -m stems.cli --serve
-```
-
-Then open http://127.0.0.1:8000.
-
 Or the CLI:
 
 ```bash
@@ -135,46 +129,15 @@ Already have a library in another format? Convert it in place:
 .venv/bin/python -m stems.cli --recompress --format flac
 ```
 
-### Why the extra copies
+### The mono sidecar
 
-The browser mixer plays fourteen tracks at once, which is 200 MB of FLAC for a
-3.5-minute song — enough to wedge a tab. So a lossless master also gets a
-128 kbps stereo AAC preview to stream. Choose a lossy master and that tier
-disappears: the master is small enough to stream itself, and `previews/` is
-not written at all.
+`spatial/` holds a mono AAC copy of every stem. This is not a size saving:
+`AVAudioEnvironmentNode` only spatialises **mono** inputs -- a stereo source is
+passed through unpositioned -- so the app needs a mono asset whatever the
+master format is.
 
-`spatial/` is always written, and is not about size: `AVAudioEnvironmentNode`
-only spatialises **mono** inputs, so the iOS app needs a mono asset regardless
-of what the master is.
-
-Expect roughly 2.5x the track length to process on an Apple-silicon laptop: a
-3.5-minute song took about 8.5 minutes across all three stages, or 20 seconds
-for a 55-second clip with only the base split.
-
-## How it fits together
-
-| File | Role |
-|---|---|
-| `stems/download.py` | yt-dlp → 44.1 kHz stereo WAV |
-| `stems/config.py` | the cascade: which stage splits what |
-| `stems/models.py` | resolves stage models against the installed registry |
-| `stems/separate.py` | runs the stages, names and files the outputs |
-| `stems/pipeline.py` | orchestration, levels, manifest |
-| `stems/server.py` | job queue + JSON API |
-| `stems/web/index.html` | the mixer |
-
-The mixer streams through `<audio>` elements rather than decoded Web Audio
-buffers — fourteen decoded stems of an 8-minute song is ~2.4 GB of PCM. The
-trade-off is that elements drift apart, so playback pre-rolls every element to
-the same position before starting and a timer nudges stragglers back.
-
-Stages name their model by keyword rather than pinning a filename, because
-upstream renames checkpoints between releases; `models.py` tries known-good
-names first and falls back to a keyword search.
-
-Models used: `htdemucs_6s` for the six-way split,
-`mel_band_roformer_karaoke` for lead vs. backing, and `MDX23C-DrumSep` for the
-kit. All are downloaded via [`audio-separator`](https://github.com/nomadkaraoke/python-audio-separator).
+There used to be a third `previews/` tier of stereo AAC for a browser mixer.
+That mixer is gone, and so is the tier.
 
 ## Accounts
 
@@ -333,6 +296,20 @@ This design needs the Mac awake. Making playback survive a sleeping Mac is a
 different job: sync `out/` to **R2** and put a Worker in front to serve the
 library and files. Separation would still need the Mac, or a GPU host — R2 and
 a Worker only remove the Mac from the *playback* path.
+
+## Adding a song
+
+The **+** tab is the one way in:
+
+- **Paste a link.** Anything yt-dlp understands, not only YouTube. A pasted
+  link becomes a one-song batch, so progress and match confirmation look the
+  same however the song was chosen.
+- **Apple Music**, once the library is authorised: playlists and albums with
+  artwork, plus search across every song by title or artist.
+- **Spotify**, once connected: your playlists, plus Spotify's catalogue search
+  so a song that is in no playlist is still reachable.
+
+Selecting from either service picks the *song*, not its audio -- see below.
 
 ## Playlists
 

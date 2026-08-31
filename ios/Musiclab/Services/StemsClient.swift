@@ -222,7 +222,33 @@ extension StemsClient {
         )
     }
 
+    struct LinkBody: Encodable { let url: String; let audio_format: String }
+    struct JobReply: Decodable { let id: String }
+
+    /// A pasted link becomes a one-song batch, so progress and match
+    /// confirmation look the same however the song was chosen. The single-job
+    /// endpoint returns a job rather than a batch, so it is tagged and unpacked
+    /// again in `batch(id:)`.
+    func separate(link: String, format: String = "flac") async throws -> String {
+        let reply: JobReply = try await post(
+            "api/jobs", body: LinkBody(url: link, audio_format: format)
+        )
+        return "job:" + reply.id
+    }
+
     func batch(id: String) async throws -> [JobStatus] {
+        if id.hasPrefix("job:") {
+            guard let baseURL else { throw ClientError.notConnected }
+            let jobID = String(id.dropFirst(4))
+            let (data, _) = try await URLSession.shared.data(
+                for: request(baseURL.appendingPathComponent("api/jobs/\(jobID)"))
+            )
+            return [try JSONDecoder().decode(JobStatus.self, from: data)]
+        }
+        return try await batchList(id: id)
+    }
+
+    private func batchList(id: String) async throws -> [JobStatus] {
         guard let baseURL else { throw ClientError.notConnected }
         let (data, _) = try await URLSession.shared.data(
             for: request(baseURL.appendingPathComponent("api/batch/\(id)"))

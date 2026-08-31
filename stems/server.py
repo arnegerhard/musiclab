@@ -21,8 +21,6 @@ from .config import DEFAULT_FORMAT, OUT_DIR
 
 SERVICE_TYPE = "_stems._tcp.local."
 
-WEB_DIR = Path(__file__).parent / "web"
-
 app = FastAPI(title="musiclab")
 app.include_router(auth_router)
 
@@ -159,8 +157,6 @@ def _run_separation(job_id: str, request: JobRequest, url: str):
             _append_log(job_id, f'{event["stage"]}: {", ".join(event["stems"])}')
         elif kind == "stage_skipped":
             _append_log(job_id, f'Skipped {event["stage"]}: {event["reason"]}')
-        elif kind == "preview_failed":
-            _append_log(job_id, f'No preview encoded for {event["stem"]}')
         elif kind == "stem_missing":
             _append_log(job_id, f'Warning: {event["file"]} went missing')
         elif kind == "analyse_start":
@@ -363,11 +359,6 @@ def put_scene(slug: str, scene: dict, user: dict = Depends(current_user)):
     scene_path = _job_dir(user, slug) / "scene.json"
     scene_path.write_text(json.dumps(scene, indent=2))
     return {"saved": True}
-
-
-@app.get("/")
-def index():
-    return FileResponse(WEB_DIR / "index.html")
 
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)

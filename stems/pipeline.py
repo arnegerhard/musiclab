@@ -70,19 +70,14 @@ def _encode(source: Path, dest: Path, args: tuple[str, ...]) -> bool:
     return result.returncode == 0 and dest.exists()
 
 
-def _encode_preview(source: Path, dest: Path, mono: bool = False) -> bool:
-    """A compressed sidecar, for a consumer the master format does not suit.
+def _encode_spatial(source: Path, dest: Path) -> bool:
+    """The mono asset the app plays.
 
-    * stereo, for the browser mixer, when the master is lossless. Fourteen
-      FLAC stems at once is 200 MB of buffering, which wedges the tab.
-    * mono, for the iOS spatial app. AVAudioEnvironmentNode only spatialises
-      mono inputs -- a stereo source is passed through unpositioned -- and a
-      point in a room is mono by definition anyway.
+    Mono is a requirement, not a size saving: AVAudioEnvironmentNode only
+    spatialises mono inputs -- a stereo source is passed through unpositioned --
+    and a point in a room is mono by definition anyway.
     """
-    channels = ("-ac", "1") if mono else ()
-    return _encode(
-        source, dest, ("-c:a", "aac", "-b:a", "96k" if mono else "128k", *channels)
-    )
+    return _encode(source, dest, ("-c:a", "aac", "-b:a", "96k", "-ac", "1"))
 
 
 def _reconstruction_error(source: Path, leaves: list[Path]) -> float | None:
@@ -186,7 +181,6 @@ def run(
     error = _reconstruction_error(source.path, leaves)
 
     emit(kind="encode_start", format=fmt.key, count=len(ordered))
-    preview_dir = job_dir / "previews"
     spatial_dir = job_dir / "spatial"
     stem_entries = []
 
@@ -196,18 +190,8 @@ def run(
             emit(kind="encode_failed", stem=stem.name)
             continue
 
-        # A lossy master is already small enough to stream, so it doubles as
-        # the browser mixer's source instead of a third copy on disk.
-        if fmt.streamable:
-            preview_path = f"stems/{master.name}"
-        else:
-            preview = preview_dir / f"{stem.name}.m4a"
-            preview_path = (
-                f"previews/{preview.name}" if _encode_preview(stem.path, preview) else None
-            )
-
         spatial = spatial_dir / f"{stem.name}.m4a"
-        has_spatial = _encode_preview(stem.path, spatial, mono=True)
+        has_spatial = _encode_spatial(stem.path, spatial)
 
         stem_entries.append(
             {
@@ -215,7 +199,6 @@ def run(
                 "label": stem.name.replace("_", " ").title(),
                 "file": f"stems/{master.name}",
                 "format": fmt.key,
-                "preview": preview_path,
                 "spatial": f"spatial/{spatial.name}" if has_spatial else None,
                 "stage": stem.stage,
                 "parent": stem.parent,

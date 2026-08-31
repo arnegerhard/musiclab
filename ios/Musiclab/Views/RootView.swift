@@ -18,8 +18,8 @@ struct RootView: View {
                 TabView {
                     NavigationStack { LibraryView() }
                         .tabItem { Label("Library", systemImage: "square.stack.3d.up") }
-                    NavigationStack { PlaylistsView() }
-                        .tabItem { Label("Playlists", systemImage: "music.note.list") }
+                    NavigationStack { AddSongView() }
+                        .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 }
             }
         }

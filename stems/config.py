@@ -24,15 +24,6 @@ class AudioFormat:
     lossless: bool
     note: str
 
-    @property
-    def streamable(self) -> bool:
-        """Small enough that the browser mixer can play it directly.
-
-        Fourteen tracks play at once, so a lossless master still needs a
-        compressed sidecar; a lossy master is already its own preview.
-        """
-        return not self.lossless
-
 
 # Measured on a 14-stem, 5:36 track: WAV 792 MB, FLAC 200 MB, MP3-320 189 MB,
 # AAC-256 137 MB, AAC-192 106 MB. MP3 at 320k costs the same bytes as FLAC and

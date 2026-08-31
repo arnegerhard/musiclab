@@ -155,9 +155,14 @@ final class SpotifySource: NSObject, ASWebAuthenticationPresentationContextProvi
             let token = try await validToken()
             let page: PlaylistPage = try await get("me/playlists?limit=50", token: token)
             playlists = page.items.map {
-                PlaylistSummary(
-                    id: $0.id, name: $0.name,
-                    trackCount: $0.tracks.total, source: .spotify
+                MusicCollection(
+                    id: $0.id,
+                    name: $0.name,
+                    subtitle: $0.owner?.display_name ?? "",
+                    trackCount: $0.tracks.total,
+                    source: .spotify,
+                    kind: .playlist,
+                    artwork: ($0.images?.first?.url).flatMap(URL.init).map(Artwork.remote) ?? .none
                 )
             }
             isConnected = true
@@ -176,13 +181,7 @@ final class SpotifySource: NSObject, ASWebAuthenticationPresentationContextProvi
                 let page: TrackPage = try await get(path, token: token)
                 collected += page.items.compactMap { item in
                     guard let track = item.track else { return nil }
-                    return PlaylistTrack(
-                        id: track.id ?? UUID().uuidString,
-                        title: track.name,
-                        artist: track.artists.first?.name ?? "",
-                        duration: Double(track.duration_ms) / 1000,
-                        sourceName: "spotify"
-                    )
+                    return Self.track(track)
                 }
                 next = page.next.flatMap { URL(string: $0)?.path.replacingOccurrences(of: "/v1/", with: "").appending("?\(URL(string: $0)?.query ?? "")") }
             }
@@ -191,6 +190,37 @@ final class SpotifySource: NSObject, ASWebAuthenticationPresentationContextProvi
             self.error = "Could not load those tracks."
             return []
         }
+    }
+
+    /// Spotify's own catalogue search, so a song that is in no playlist is
+    /// still reachable -- the same thing the Spotify app's search box does.
+    func search(_ text: String) async -> [PlaylistTrack] {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count > 1, isConnected else { return [] }
+        guard let escaped = trimmed.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed
+        ) else { return [] }
+        do {
+            let token = try await validToken()
+            let result: SearchResult = try await get(
+                "search?q=\(escaped)&type=track&limit=40", token: token
+            )
+            return result.tracks.items.map(Self.track)
+        } catch {
+            return []
+        }
+    }
+
+    private static func track(_ track: TrackPage.Track) -> PlaylistTrack {
+        PlaylistTrack(
+            id: track.id ?? UUID().uuidString,
+            title: track.name,
+            artist: track.artists.first?.name ?? "",
+            duration: Double(track.duration_ms) / 1000,
+            sourceName: "spotify",
+            album: track.album?.name ?? "",
+            artwork: (track.album?.images?.first?.url).flatMap(URL.init).map(Artwork.remote) ?? .none
+        )
     }
 
     private func get<T: Decodable>(_ path: String, token: String) async throws -> T {
@@ -228,21 +258,33 @@ final class SpotifySource: NSObject, ASWebAuthenticationPresentationContextProvi
         let expires_in: Int
         let refresh_token: String?
     }
+    struct Image: Decodable { let url: String }
+
     private struct PlaylistPage: Decodable {
         struct Item: Decodable {
             struct Tracks: Decodable { let total: Int }
+            struct Owner: Decodable { let display_name: String? }
             let id: String; let name: String; let tracks: Tracks
+            let images: [Image]?; let owner: Owner?
         }
         let items: [Item]
     }
-    private struct TrackPage: Decodable {
+
+    struct TrackPage: Decodable {
         struct Item: Decodable { let track: Track? }
+        struct Album: Decodable { let name: String; let images: [Image]? }
         struct Track: Decodable {
             struct Artist: Decodable { let name: String }
             let id: String?; let name: String
             let artists: [Artist]; let duration_ms: Int
+            let album: Album?
         }
         let items: [Item]; let next: String?
+    }
+
+    private struct SearchResult: Decodable {
+        struct Tracks: Decodable { let items: [TrackPage.Track] }
+        let tracks: Tracks
     }
 }
 

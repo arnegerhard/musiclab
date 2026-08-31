@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from .config import OUT_DIR
-from .pipeline import _encode, _encode_preview, resolve_format
+from .pipeline import _encode, _encode_spatial, resolve_format
 
 
 def job_dirs(out_dir: Path = OUT_DIR) -> list[Path]:
@@ -37,7 +37,6 @@ def convert(job_dir: Path, audio_format: str, progress=None) -> dict:
         emit(kind="warn", message=f"{job_dir.name}: {previous} is already lossy; re-encoding loses more")
 
     stems_dir = job_dir / "stems"
-    preview_dir = job_dir / "previews"
     spatial_dir = job_dir / "spatial"
 
     for entry in manifest.get("stems", []):
@@ -55,26 +54,18 @@ def convert(job_dir: Path, audio_format: str, progress=None) -> dict:
         entry["file"] = f"stems/{new.name}"
         entry["format"] = fmt.key
 
-        # A lossy master is its own preview; a lossless one still needs a
-        # small sidecar for the browser mixer.
-        if fmt.streamable:
-            entry["preview"] = entry["file"]
-        else:
-            preview = preview_dir / f"{entry['name']}.m4a"
-            if not preview.exists():
-                _encode_preview(new, preview)
-            entry["preview"] = f"previews/{preview.name}" if preview.exists() else None
-
+        entry.pop("preview", None)
         spatial = spatial_dir / f"{entry['name']}.m4a"
         if not spatial.exists():
-            _encode_preview(new, spatial, mono=True)
+            _encode_spatial(new, spatial)
         entry["spatial"] = f"spatial/{spatial.name}" if spatial.exists() else None
 
         emit(kind="stem", name=entry["name"])
 
-    # The separate preview tier is redundant once masters are streamable.
-    if fmt.streamable and preview_dir.exists():
-        shutil.rmtree(preview_dir, ignore_errors=True)
+    # The stereo preview tier existed only for the browser mixer, which is gone.
+    stale_previews = job_dir / "previews"
+    if stale_previews.exists():
+        shutil.rmtree(stale_previews, ignore_errors=True)
 
     source_name = manifest.get("source_file")
     if source_name:

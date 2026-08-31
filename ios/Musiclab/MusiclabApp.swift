@@ -5,6 +5,8 @@ struct MusiclabApp: App {
     @State private var client = StemsClient()
     @State private var discovery = ServerDiscovery()
     @State private var account: Account
+    @State private var apple = AppleMusicSource()
+    @State private var spotify = SpotifySource()
 
     init() {
         let client = StemsClient()
@@ -18,6 +20,8 @@ struct MusiclabApp: App {
                 .environment(client)
                 .environment(discovery)
                 .environment(account)
+                .environment(apple)
+                .environment(spotify)
                 .preferredColorScheme(.dark)
         }
     }

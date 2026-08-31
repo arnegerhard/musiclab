@@ -40,8 +40,6 @@ def _reporter():
             print(f'Encoding {event["count"]} stems as {event["format"]}...', flush=True)
         elif kind == "encode_failed":
             print(f'  warning: could not encode {event["stem"]}', flush=True)
-        elif kind == "preview_failed":
-            print(f'  warning: no preview encoded for {event["stem"]}', flush=True)
         elif kind == "stem_missing":
             print(f'  warning: {event["file"]} went missing', flush=True)
         elif kind == "analyse_start":
