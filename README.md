@@ -286,7 +286,11 @@ for a server and an account, exchanges the password for a token it keeps in the
 login keychain, and works in the background.
 
 Models (~1.3 GB) download on first run rather than shipping in the bundle, so
-they are not paid for twice by anyone who already has them.
+they are not paid for twice by anyone who already has them. They land in
+`~/Library/Application Support/Musiclab/models`, **not** inside the .app:
+writing into a bundle invalidates its code signature, may not be permitted
+under `/Applications`, and would be thrown away by the next update. A checkout
+still keeps them next to the source, which is convenient while developing.
 
 Two things had to change to make a bundle self-sufficient. `ffmpeg` now comes
 from a wheel, since a stranger's Mac has no Homebrew. And yt-dlp is asked only
@@ -295,8 +299,14 @@ to fetch, never to convert: its audio postprocessor wants both `ffmpeg` and
 while the conversion it would have done is the same one an uploaded file
 already goes through.
 
-Verified with an empty environment (`env -i PATH=/usr/bin:/bin`): fetched,
-separated across all three stages on Metal, handed back 14 stems.
+Verified from a directory outside the checkout, with an empty environment
+(`env -i PATH=/usr/bin:/bin`) and the model cache deleted: fetched the models,
+fetched the song, separated across all three stages on Metal, handed back 14
+stems, and left the bundle untouched.
+
+Testing this from inside the checkout proves nothing -- Python puts the working
+directory on `sys.path`, so `import stems` finds the source tree and the bundle
+is never exercised.
 
 **Containers were the wrong tool here.** Apple's `container` runs Linux in a VM
 through Virtualization.framework, which does not expose the GPU -- the guest

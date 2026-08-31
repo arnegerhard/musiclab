@@ -7,8 +7,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT_DIR = Path(os.environ.get("STEMS_OUT_DIR", ROOT / "out"))
-MODEL_DIR = Path(os.environ.get("STEMS_MODEL_DIR", ROOT / "models"))
+
+
+def _state_root() -> Path:
+    """Where downloaded models and finished songs belong.
+
+    Next to the source in a checkout, which is convenient while developing. But
+    inside a packaged .app that would mean writing into the bundle: it breaks
+    the code signature, may not be permitted at all under /Applications, and is
+    thrown away by the next update. So a bundle keeps its state beside the
+    user's other application data instead.
+    """
+    if ".app/Contents/" in str(ROOT):
+        return Path.home() / "Library" / "Application Support" / "Musiclab"
+    return ROOT
+
+
+STATE_DIR = _state_root()
+OUT_DIR = Path(os.environ.get("STEMS_OUT_DIR", STATE_DIR / "out"))
+MODEL_DIR = Path(os.environ.get("STEMS_MODEL_DIR", STATE_DIR / "models"))
 
 # The stem every stage reads from when it works on the untouched mixdown.
 SOURCE_INPUT = "__input__"

@@ -14,6 +14,11 @@ KEYCHAIN_ACCOUNT="musiclab-worker"
 
 mkdir -p "$SUPPORT" "$(dirname "$LOG")"
 
+# Models and any scratch belong beside the user's data, never inside the
+# bundle: writing there would invalidate the code signature.
+export STEMS_MODEL_DIR="$SUPPORT/models"
+export STEMS_OUT_DIR="$SUPPORT/out"
+
 ask() {  # prompt, default, hidden
     local hidden=""
     [ "${3:-}" = "hidden" ] && hidden="with hidden answer"
