@@ -24,14 +24,18 @@ GPU = "A100-80GB"
 
 app = modal.App(APP_NAME)
 
-# The library and the accounts database. One volume, so a finished song and the
-# row that owns it cannot drift apart.
+# Two volumes, and they have to be two. Reloading a volume fails while any file
+# on it is open, and SQLite holds the database open for the life of the
+# process -- so the library the web app must reload cannot be the volume the
+# database sits on.
 data = modal.Volume.from_name(f"{APP_NAME}-data", create_if_missing=True)
+database = modal.Volume.from_name(f"{APP_NAME}-db", create_if_missing=True)
 
 # Job state, which the web container and the GPU container both touch.
 job_state = modal.Dict.from_name(f"{APP_NAME}-jobs", create_if_missing=True)
 
 DATA_DIR = "/data"
+DB_DIR = "/db"
 MODEL_DIR = "/models"
 
 ENVIRONMENT = {
@@ -40,6 +44,7 @@ ENVIRONMENT = {
     # Bonjour cannot cross the internet and there is no LAN here to advertise on.
     "STEMS_BONJOUR": "0",
     "MUSICLAB_SQLITE_JOURNAL": "DELETE",
+    "MUSICLAB_DB": f"{DB_DIR}/musiclab.db",
 }
 
 
@@ -83,9 +88,11 @@ image = (
         "numpy>=1.26",
         "pyjwt[crypto]>=2.8",
     )
-    .env(ENVIRONMENT)
     .add_local_python_source("stems", copy=True)
     .run_function(_fetch_models)
+    # After the download on purpose: image layers rebuild from the first one
+    # that changed, and settings change far more often than 1.3 GB of weights.
+    .env(ENVIRONMENT)
 )
 
 
@@ -131,15 +138,18 @@ class ModalRunner:
 
 
 def _install_runtime() -> None:
-    from stems import jobs
+    from stems import db, jobs
 
     jobs.use(ModalJobStore(job_state), ModalRunner(), data.reload)
+    # A volume only persists what has been committed, so every database write
+    # is followed by one.
+    db.flush = database.commit
 
 
 @app.function(
     image=image,
     gpu=GPU,
-    volumes={DATA_DIR: data},
+    volumes={DATA_DIR: data, DB_DIR: database},
     timeout=3600,
     # Every song gets its own container, so a playlist separates in parallel
     # instead of one at a time.
@@ -158,7 +168,7 @@ def worker(entry: str, *args) -> None:
 
 @app.function(
     image=image,
-    volumes={DATA_DIR: data},
+    volumes={DATA_DIR: data, DB_DIR: database},
     timeout=600,
     # One container: it owns the SQLite file, and nothing else writes it.
     max_containers=1,
@@ -172,6 +182,54 @@ def web():
     return fastapi_app
 
 
+@app.function(
+    image=image, gpu=GPU, volumes={DATA_DIR: data, DB_DIR: database}, timeout=3600
+)
+def benchmark(relative: str = "bench/source.flac") -> str:
+    """Time the cascade on a file already on the volume, to compare the GPU
+    against the Mac without YouTube in the way."""
+    import logging
+    import time
+    from pathlib import Path
+
+    import soundfile as sf
+    import torch
+
+    from stems.config import ALL_STAGES, MODEL_DIR as MODELS
+    from stems.separate import Cascade
+
+    source = Path(DATA_DIR) / relative
+    seconds = sf.info(str(source)).duration
+    lines = [f"gpu: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NONE'}",
+             f"track: {seconds:.0f}s", ""]
+
+    marks: dict[str, float] = {}
+
+    def progress(event):
+        if event.get("kind") == "stage_start":
+            marks[event["stage"]] = time.time()
+        elif event.get("kind") == "stage_done":
+            stage = event["stage"]
+            taken = time.time() - marks.get(stage, time.time())
+            lines.append(f"  {stage:<7}{taken:7.1f}s   {taken / seconds:5.2f}x track")
+
+    work = Path("/tmp/bench")
+    started = time.time()
+    Cascade(
+        work_dir=work, stem_dir=work / "stems", model_dir=Path(MODELS),
+        progress=progress, log_level=logging.ERROR,
+    ).run(source, list(ALL_STAGES))
+    total = time.time() - started
+    lines.append(f"  {'TOTAL':<7}{total:7.1f}s   {total / seconds:5.2f}x track")
+    return "\n".join(lines)
+
+
+@app.local_entrypoint()
+def bench():
+    """`modal run modal_app.py::bench`"""
+    print(benchmark.remote())
+
+
 @app.local_entrypoint()
 def create_account(email: str = "", password: str = ""):
     """`modal run modal_app.py --email you@example.com --password ...`"""
@@ -181,13 +239,15 @@ def create_account(email: str = "", password: str = ""):
     print(make_account.remote(email, password))
 
 
-@app.function(image=image, volumes={DATA_DIR: data})
+@app.function(image=image, volumes={DATA_DIR: data, DB_DIR: database})
 def make_account(email: str, password: str) -> str:
     from stems import users
 
+    _install_runtime()
     try:
         user = users.create(email, password)
     except Exception as exc:
         return f"Could not create the account: {exc}"
     data.commit()
+    database.commit()
     return f"Created {user['email']} ({user['id']})"

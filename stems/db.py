@@ -17,7 +17,23 @@ from pathlib import Path
 
 from .config import OUT_DIR
 
-DB_PATH = Path(OUT_DIR).parent / "musiclab.db"
+# Deliberately overridable and, on Modal, on a *different* volume from the
+# library: reloading a volume fails while any file on it is open, and SQLite
+# holds the database open for the life of the process.
+DB_PATH = Path(os.environ.get("MUSICLAB_DB", str(Path(OUT_DIR).parent / "musiclab.db")))
+
+
+def _no_flush() -> None:
+    """Locally the file is already durable the moment SQLite writes it."""
+
+
+# Replaced on Modal, where a volume must be committed to persist.
+flush: "callable" = _no_flush
+
+
+def _commit() -> None:
+    connect().commit()
+    flush()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -86,7 +102,7 @@ def create_user(
         " VALUES (?, ?, ?, ?, ?, ?)",
         (user_id, email, password_hash, apple_sub, display_name, time.time()),
     )
-    connect().commit()
+    _commit()
     return get_user(user_id)
 
 
@@ -113,7 +129,7 @@ def set_password(user_id: str, password_hash: str) -> None:
     connect().execute(
         "UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id)
     )
-    connect().commit()
+    _commit()
 
 
 def attach_apple(user_id: str, apple_sub: str) -> None:
@@ -121,7 +137,7 @@ def attach_apple(user_id: str, apple_sub: str) -> None:
     connect().execute(
         "UPDATE users SET apple_sub = ? WHERE id = ?", (apple_sub, user_id)
     )
-    connect().commit()
+    _commit()
 
 
 def all_users() -> list[dict]:
@@ -138,7 +154,7 @@ def create_session(user_id: str, token_hash: str, lifetime_days: int = 365) -> N
         " VALUES (?, ?, ?, ?)",
         (token_hash, user_id, now, now + lifetime_days * 86400),
     )
-    connect().commit()
+    _commit()
 
 
 def session_user(token_hash: str) -> dict | None:
@@ -152,14 +168,14 @@ def session_user(token_hash: str) -> dict | None:
 
 def delete_session(token_hash: str) -> None:
     connect().execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
-    connect().commit()
+    _commit()
 
 
 def purge_expired() -> None:
     now = time.time()
     connect().execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
     connect().execute("DELETE FROM reset_codes WHERE expires_at < ?", (now,))
-    connect().commit()
+    _commit()
 
 
 # MARK: password reset
@@ -171,7 +187,7 @@ def store_reset(user_id: str, code_hash: str, minutes: int = 15) -> None:
         "INSERT INTO reset_codes (code_hash, user_id, expires_at) VALUES (?, ?, ?)",
         (code_hash, user_id, time.time() + minutes * 60),
     )
-    connect().commit()
+    _commit()
 
 
 def consume_reset(code_hash: str) -> dict | None:
@@ -182,7 +198,7 @@ def consume_reset(code_hash: str) -> dict | None:
     if row is None:
         return None
     connect().execute("DELETE FROM reset_codes WHERE code_hash = ?", (code_hash,))
-    connect().commit()
+    _commit()
     return get_user(row["user_id"])
 
 
@@ -197,4 +213,4 @@ def record_reset_attempt(user_id: str) -> None:
     connect().execute(
         "UPDATE reset_codes SET attempts = attempts + 1 WHERE user_id = ?", (user_id,)
     )
-    connect().commit()
+    _commit()
