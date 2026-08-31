@@ -14,6 +14,7 @@ struct SetupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Sign this Mac in").font(.headline)
+                .accessibilityAddTraits(.isHeader)
             Text("It will separate songs for the account you sign in as, and "
                  + "keep nothing once each one is sent back.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -36,22 +37,36 @@ struct SetupView: View {
                 Button("Cancel") { dismiss() }
                 Button("Sign in") { Task { await signIn() } }
                     .buttonStyle(.borderedProminent)
-                    .disabled(working || email.isEmpty || password.count < 8)
+                    // Only disabled while a request is in flight. A greyed-out
+                    // button that will not say why is worse than one that
+                    // presses and explains.
+                    .disabled(working)
             }
         }
         .padding(20)
         .frame(width: 420)
+        .onDisappear {
+            // Back to an accessory once the window is gone, so the app leaves
+            // no Dock icon behind.
+            NSApplication.shared.setActivationPolicy(.accessory)
+        }
     }
 
     /// Exchanges the password for a token immediately, and keeps only the
     /// token. The password is never written anywhere.
     private func signIn() async {
+        let address = server.trimmingCharacters(in: .whitespaces)
+        let account = email.trimmingCharacters(in: .whitespaces)
+        guard !account.isEmpty, !password.isEmpty else {
+            error = "Fill in the email and password."
+            return
+        }
+
         working = true
         error = nil
         defer { working = false }
 
-        guard let url = URL(string: server.trimmingCharacters(in: .whitespaces))?
-            .appendingPathComponent("api/auth/login")
+        guard let url = URL(string: address)?.appendingPathComponent("api/auth/login")
         else {
             error = "That server address does not look right."
             return
@@ -61,7 +76,7 @@ struct SetupView: View {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(
-            withJSONObject: ["email": email, "password": password]
+            withJSONObject: ["email": account, "password": password]
         )
         request.timeoutInterval = 30
 
@@ -74,9 +89,7 @@ struct SetupView: View {
                 return
             }
             Keychain.write(token)
-            try WorkerProcess.save(configuration: .init(
-                server: server.trimmingCharacters(in: .whitespaces), email: email
-            ))
+            try WorkerProcess.save(configuration: .init(server: address, email: account))
             onSignedIn()
             dismiss()
         } catch {

@@ -5,7 +5,7 @@ struct WorkerPanel: View {
     @Bindable var reader: StatusReader
     @Bindable var worker: WorkerProcess
 
-    @State private var showingSetup = false
+    @Environment(\.openWindow) private var openWindow
 
     private var status: WorkerStatus { reader.status }
 
@@ -27,9 +27,6 @@ struct WorkerPanel: View {
         .task {
             reader.start()
             if WorkerProcess.loadConfiguration() != nil { worker.start() }
-        }
-        .sheet(isPresented: $showingSetup) {
-            SetupView { worker.start() }
         }
     }
 
@@ -96,7 +93,7 @@ struct WorkerPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("This Mac is not signed in yet.")
                 .font(.callout).foregroundStyle(.secondary)
-            Button("Set up…") { showingSetup = true }
+            Button("Set up…") { openSetup() }
                 .buttonStyle(.borderedProminent)
         }
     }
@@ -120,6 +117,20 @@ struct WorkerPanel: View {
             }
         }
         .font(.callout)
+    }
+
+    private func openSetup() {
+        // A menu bar app runs as an accessory, which cannot become the active
+        // app and so cannot reliably front a window or give a text field the
+        // keyboard. It becomes a regular app for as long as the window is up.
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        openWindow(id: "setup")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            NSApplication.shared.windows
+                .first { $0.title == "Sign in to Musiclab" }?
+                .makeKeyAndOrderFront(nil)
+        }
     }
 
     // MARK: - Presentation
