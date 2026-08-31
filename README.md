@@ -206,9 +206,10 @@ Anywhere else it is off:
 
 ### Where the app looks
 
-Always the Mac on this network first, whatever the build -- it is faster, it is
-free, and it is where songs are separated. The deployed host is the fallback
-for when the Mac is not running or not on this network.
+Always the Mac on this network first, whatever the build: it costs nothing and
+the stems are already on it. The deployed host is the fallback for when the Mac
+is off or you are somewhere else -- it separates faster, on a GPU, but it bills
+by the second.
 
 A remembered address is re-checked at launch and whenever the app returns to
 the foreground, so a Mac that went to sleep or changed address does not strand
@@ -229,62 +230,6 @@ way to exercise that path before actually shipping:
 ```bash
 xcrun simctl launch <udid> info.jetsons.musiclab --args -distribution appStore
 ```
-
-### Deploying: Cloudflare Tunnel
-
-**Separation cannot run on Cloudflare.** Workers execute JavaScript and WASM,
-not PyTorch. Containers top out at 4 vCPU and 12 GiB with no GPU, sleep when
-idle, and would need the ~700 MB of model weights on every cold start — for
-work that already runs at 2.5x realtime on the Mac.
-
-So the Mac keeps doing the work, and Cloudflare Tunnel gives it a public
-hostname. `cloudflared` dials out to Cloudflare, so no port is forwarded and no
-inbound firewall rule is needed.
-
-```bash
-brew install cloudflared
-cloudflared tunnel login                                  # pick jetsons.info
-cloudflared tunnel create musiclab
-cloudflared tunnel route dns musiclab stems.jetsons.info
-```
-
-`~/.cloudflared/config.yml`:
-
-```yaml
-tunnel: <the UUID that `create` printed>
-credentials-file: /Users/arne/.cloudflared/<UUID>.json
-ingress:
-  - hostname: stems.jetsons.info
-    service: http://localhost:8000
-  - service: http_status:404
-```
-
-Then run it, with a token set so the world cannot use your Mac as a
-free transcoding service:
-
-```bash
-STEMS_TOKEN=$(openssl rand -hex 24) .venv/bin/python -m stems.cli --serve --no-bonjour
-cloudflared tunnel run musiclab
-```
-
-`sudo cloudflared service install` keeps the tunnel up across reboots.
-
-### What actually changes in Cloudflare
-
-Mostly nothing by hand — `tunnel route dns` writes the DNS record for you:
-
-| Where | What | Why |
-|---|---|---|
-| **DNS** | proxied `CNAME` `stems` → `<UUID>.cfargotunnel.com` | created by `route dns`; leave the orange cloud on |
-| **SSL/TLS** | mode **Full** | Cloudflare terminates TLS; the tunnel is already encrypted |
-| **Cache rules** | bypass cache for `/api/*` | manifests and job status change; stale ones break the app |
-| **Cache rules** | cache `/files/*` | stems never change once written, so serve them from the edge |
-| **Zero Trust → Tunnels** | the tunnel appears here | where you check it is healthy |
-
-Two Cloudflare limits worth knowing: the proxy read timeout is **125 seconds**,
-which is fine because separation is queued and polled rather than held open on
-one request; and audio seeking relies on range requests, which the proxy passes
-through.
 
 ### Running it on a GPU instead
 
@@ -337,12 +282,15 @@ was written and type-checked but never deployed, because deploying needs a
 
 The vocal split dominates, so it is what any GPU has to be fast at.
 
-### If you want the Mac to be off
+### Where the deployed server lives
 
-This design needs the Mac awake. Making playback survive a sleeping Mac is a
-different job: sync `out/` to **R2** and put a Worker in front to serve the
-library and files. Separation would still need the Mac, or a GPU host — R2 and
-a Worker only remove the Mac from the *playback* path.
+Modal. `MUSICLAB_CLOUD_URL` is the `https://….modal.run` address the deploy
+prints, and that is the whole of it -- the Mac is optional once it is up.
+
+A custom domain on Modal needs their Team plan. If you want
+`stem.jetsons.info` on the Starter plan instead, a small proxy in front of the
+`.modal.run` origin does it; a bare CNAME will not, because Modal has no
+certificate for your hostname.
 
 ## Adding a song
 
