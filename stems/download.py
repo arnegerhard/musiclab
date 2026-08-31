@@ -36,11 +36,13 @@ def adopt(audio: Path, dest_dir: Path, metadata: dict) -> Source:
     """
     import subprocess
 
+    from .media import ffmpeg_path
+
     dest_dir.mkdir(parents=True, exist_ok=True)
     wav = dest_dir / "source.wav"
     result = subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
+            ffmpeg_path(), "-y", "-loglevel", "error",
             "-i", str(audio),
             "-ar", str(SAMPLE_RATE), "-ac", "2",
             str(wav),
@@ -70,7 +72,11 @@ def adopt(audio: Path, dest_dir: Path, metadata: dict) -> Source:
 
 def fetch(url: str, dest_dir: Path, progress=None) -> Source:
     """Download the best audio stream and decode it to a 44.1kHz stereo WAV."""
+    import subprocess
+
     import yt_dlp
+
+    from .media import ffmpeg_path
 
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -87,34 +93,37 @@ def fetch(url: str, dest_dir: Path, progress=None) -> Source:
 
     options = {
         "format": "bestaudio/best",
-        "outtmpl": str(dest_dir / "source.%(ext)s"),
+        "outtmpl": str(dest_dir / "download.%(ext)s"),
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [hook],
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "wav",
-                "preferredquality": "0",
-            }
-        ],
-        # Models are trained on 44.1k stereo; normalise here so every stage
-        # downstream sees the same shape regardless of the upload's format.
-        "postprocessor_args": {
-            "extractaudio": ["-ar", str(SAMPLE_RATE), "-ac", "2"],
-        },
     }
 
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=True)
 
+    downloaded = next((p for p in sorted(dest_dir.glob("download.*")) if p.is_file()), None)
+    if downloaded is None:
+        raise RuntimeError("yt-dlp downloaded nothing")
+
+    # yt-dlp is asked only to fetch, never to convert. Its audio postprocessor
+    # wants both `ffmpeg` and `ffprobe` on disk under exactly those names, and
+    # a packaged worker has neither -- while this is the same normalisation an
+    # uploaded file already goes through. Models want 44.1k stereo.
     wav = dest_dir / "source.wav"
-    if not wav.exists():
-        candidates = sorted(dest_dir.glob("source.*"))
-        raise RuntimeError(
-            f"yt-dlp produced no WAV (found: {[c.name for c in candidates]})"
-        )
+    result = subprocess.run(
+        [
+            ffmpeg_path(), "-y", "-loglevel", "error",
+            "-i", str(downloaded),
+            "-ar", str(SAMPLE_RATE), "-ac", "2",
+            str(wav),
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0 or not wav.exists():
+        raise RuntimeError(f"could not decode the download: {result.stderr.decode()[:200]}")
+    downloaded.unlink(missing_ok=True)
 
     return Source(
         path=wav,

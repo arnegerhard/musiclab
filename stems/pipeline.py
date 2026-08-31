@@ -13,6 +13,7 @@ import numpy as np
 import soundfile as sf
 
 from . import download
+from .media import ensure_on_path, ffmpeg_path
 from .config import (
     DEFAULT_FORMAT,
     FORMATS,
@@ -51,7 +52,7 @@ def _encode(source: Path, dest: Path, args: tuple[str, ...]) -> bool:
     dest.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
+            ffmpeg_path(), "-y", "-loglevel", "error",
             "-i", str(source),
             *args,
             # Lets a player start before it has the whole file. Harmless on
@@ -141,6 +142,8 @@ def run(
         if progress:
             progress(event)
 
+    # Anything downstream that shells out to `ffmpeg` by name has to find it.
+    ensure_on_path()
     fmt = resolve_format(audio_format)
     started = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)

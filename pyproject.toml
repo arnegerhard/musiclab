@@ -21,6 +21,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Everything a swarm worker needs, and nothing the server needs. Notably no
+# FastAPI: a worker talks to a server, it does not host one.
+worker = [
+    "yt-dlp>=2025.1.15",
+    "audio-separator[cpu]>=0.30.0",
+    "audioread>=3.0",
+    "soundfile>=0.13",
+    "numpy>=1.26",
+    # ffmpeg as a wheel, so a packaged worker needs no Homebrew.
+    "imageio-ffmpeg>=0.5",
+]
 # Deploying to Modal; not needed to run the server on the Mac.
 modal = ["modal>=1.5"]
 

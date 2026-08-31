@@ -23,3 +23,6 @@ ios/Musiclab/Musiclab.entitlements
 musiclab.db
 musiclab.db-shm
 musiclab.db-wal
+
+# Built worker bundles
+dist/

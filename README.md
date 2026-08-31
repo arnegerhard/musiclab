@@ -253,6 +253,58 @@ a few megabytes instead of tens, and the server re-decodes anyway.
 A local server sets nothing and downloads for itself, since it can.
 `STEMS_DELEGATE_FETCH=1` is what turns delegation on, and Modal sets it.
 
+### The worker swarm
+
+A fetch agent gets past YouTube and leaves the separation to the deployment's
+GPU. A **worker** keeps the whole job on its own Mac:
+
+```bash
+.venv/bin/python -m stems.cli --worker https://your-app.modal.run --email you@example.com
+```
+
+Both draw from the same queue, so whichever claims first decides where the
+separation happens. Workers announce what they are -- chip, cores, memory,
+whether Metal is available -- and registration doubles as the heartbeat,
+including while a job runs.
+
+**Nothing is replicated.** A worker fetches what it needs, separates, ships the
+stems back and deletes everything. No library lives on a worker, so no user's
+audio ever sits on someone else's hardware.
+
+A worker is another machine, so its archive is untrusted: any member resolving
+outside the job folder, or any link, is refused before extraction.
+
+### Packaging a worker
+
+```bash
+./packaging/build_worker_app.sh
+```
+
+Produces `dist/Musiclab Worker.app`, about 1 GB, that needs **nothing
+installed** -- Python, PyTorch and ffmpeg are all inside. Open it and it asks
+for a server and an account, exchanges the password for a token it keeps in the
+login keychain, and works in the background.
+
+Models (~1.3 GB) download on first run rather than shipping in the bundle, so
+they are not paid for twice by anyone who already has them.
+
+Two things had to change to make a bundle self-sufficient. `ffmpeg` now comes
+from a wheel, since a stranger's Mac has no Homebrew. And yt-dlp is asked only
+to fetch, never to convert: its audio postprocessor wants both `ffmpeg` and
+`ffprobe` on disk under exactly those names, and the wheel ships neither --
+while the conversion it would have done is the same one an uploaded file
+already goes through.
+
+Verified with an empty environment (`env -i PATH=/usr/bin:/bin`): fetched,
+separated across all three stages on Metal, handed back 14 stems.
+
+**Containers were the wrong tool here.** Apple's `container` runs Linux in a VM
+through Virtualization.framework, which does not expose the GPU -- the guest
+kernel has no Metal drivers. Measured on the base stage, that costs 0.30x track
+length against 0.54x, and the vocal stage that dominates the runtime would
+likely lose more. A native bundle keeps Metal and is less work than shipping
+Linux images.
+
 ### Running it on a GPU instead
 
 `modal_app.py` deploys the same pipeline to Modal, where separation runs on an

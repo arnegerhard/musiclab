@@ -21,6 +21,7 @@ import uuid
 from pathlib import Path
 
 from . import download, match, pipeline
+from .media import ensure_on_path
 
 
 class Agent:
@@ -157,13 +158,17 @@ class Worker(Agent):
     """
 
     def describe(self) -> dict:
+        import os
         import platform
         import subprocess
 
         def sysctl(key: str) -> str:
+            # Absolute path: a packaged app launched from Finder gets a bare
+            # PATH that does not include /usr/sbin.
             try:
                 return subprocess.run(
-                    ["sysctl", "-n", key], capture_output=True, text=True, timeout=5
+                    ["/usr/sbin/sysctl", "-n", key],
+                    capture_output=True, text=True, timeout=5,
                 ).stdout.strip()
             except Exception:
                 return ""
@@ -176,10 +181,17 @@ class Worker(Agent):
         except Exception:
             gpu = False
 
+        if not memory.isdigit():
+            # Fall back to the standard library rather than reporting nothing.
+            try:
+                memory = str(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"))
+            except (ValueError, OSError):
+                memory = "0"
+
         return {
             "name": platform.node().split(".")[0],
             "chip": sysctl("machdep.cpu.brand_string") or platform.machine(),
-            "cores": int(sysctl("hw.ncpu") or 0),
+            "cores": int(sysctl("hw.ncpu") or 0) or (os.cpu_count() or 0),
             "memory_gb": round(int(memory) / 1e9, 1) if memory.isdigit() else 0,
             "gpu": gpu,
             "version": "1",
@@ -256,6 +268,7 @@ class Worker(Agent):
             progress(f"    got \"{event['title']}\"")
 
     def run(self, once: bool = False, progress=print) -> None:
+        ensure_on_path()
         self.worker_id = self.register()
         progress(f"Worker {self.worker_id} watching {self.base}")
         info = self.describe()
