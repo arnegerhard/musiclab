@@ -35,6 +35,17 @@ struct LibraryView: View {
                 Image(systemName: "ellipsis.circle")
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if let url = client.baseURL, let host = url.host() {
+                // Port included: with a local and a deployed server both in
+                // play, the host alone does not say which one answered.
+                let port = url.port.map { ":\($0)" } ?? ""
+                Text("\(Distribution.current.label) · \(host)\(port)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 4)
+            }
+        }
         .refreshable { await reload() }
         .task { await reload() }
     }

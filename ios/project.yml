@@ -31,6 +31,10 @@ targets:
           Musiclab reads your playlists so you can choose which songs to split
           into separate tracks.
         # Spotify sends the OAuth result back to this scheme.
+        # Where TestFlight and App Store builds look. Development builds try
+        # the Mac first and fall back to this.
+        MusiclabCloudURL: $(MUSICLAB_CLOUD_URL)
+        MusiclabCloudToken: $(MUSICLAB_CLOUD_TOKEN)
         CFBundleURLTypes:
           - CFBundleURLName: info.jetsons.musiclab
             CFBundleURLSchemes:
@@ -43,5 +47,10 @@ targets:
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Override per build (or in CI) without touching source.
+        MUSICLAB_CLOUD_URL: https://stems.jetsons.info
+        # Must match STEMS_TOKEN on the deployed server. Embedded in the app,
+        # so treat it as a lock on a garden gate, not real authentication.
+        MUSICLAB_CLOUD_TOKEN: ""
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_USER_SCRIPT_SANDBOXING: YES

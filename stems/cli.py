@@ -127,6 +127,11 @@ def main(argv=None) -> int:
         "--serve", action="store_true", help="start the web app instead"
     )
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--no-bonjour",
+        action="store_true",
+        help="do not advertise on the local network (use when deployed)",
+    )
     args = parser.parse_args(argv)
 
     if args.formats:
@@ -141,7 +146,8 @@ def main(argv=None) -> int:
     if args.serve:
         from .server import serve
 
-        return serve(port=args.port)
+        # None lets STEMS_BONJOUR decide; the flag is an explicit override.
+        return serve(port=args.port, bonjour=False if args.no_bonjour else None)
 
     if args.recompress:
         return _recompress(args.out, args.format)

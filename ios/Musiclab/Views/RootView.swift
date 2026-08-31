@@ -17,64 +17,125 @@ struct RootView: View {
     }
 }
 
-/// First run: find the Mac, or let someone type its address.
+/// Finds a server without being asked: the Mac when this build is being
+/// developed against it, the deployed host otherwise or as a fallback.
 struct ConnectView: View {
     @Environment(StemsClient.self) private var client
     @Environment(ServerDiscovery.self) private var discovery
+    @State private var resolver = ServerResolver()
     @State private var manualHost = ""
+    @State private var token = ""
     @State private var error: String?
     @State private var checking = false
+    @State private var showingManual = false
 
     var body: some View {
         List {
             Section {
-                if discovery.servers.isEmpty {
+                if resolver.isResolving {
                     HStack(spacing: 12) {
                         ProgressView()
-                        Text("Looking for your Mac…")
+                        Text(Distribution.current.searchesLocalNetwork
+                             ? "Looking for your Mac…" : "Connecting…")
                             .foregroundStyle(.secondary)
                     }
-                }
-                ForEach(discovery.servers) { server in
+                } else {
                     Button {
-                        Task { await connect(to: server.url) }
+                        Task { await autoConnect() }
                     } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(server.name).font(.body)
-                            Text(server.url.absoluteString)
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                        Label("Try again", systemImage: "arrow.clockwise")
                     }
                 }
             } header: {
-                Text("On this network")
+                Text("Server")
             } footer: {
-                Text("Run `python -m stems.cli --serve` on the Mac holding your stems.")
+                Text(explanation)
             }
 
-            Section("By address") {
-                HStack {
+            if !discovery.servers.isEmpty {
+                Section("On this network") {
+                    ForEach(discovery.servers) { server in
+                        Button {
+                            Task { await connect(to: server.url) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(server.name)
+                                Text(server.url.absoluteString)
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let message = error ?? resolver.lastError {
+                Section { Text(message).foregroundStyle(.red).font(.callout) }
+            }
+
+            Section {
+                Button("Enter an address") { showingManual = true }
+                    .font(.callout)
+            }
+        }
+        .navigationTitle("Musiclab")
+        .sheet(isPresented: $showingManual) {
+            manualSheet
+        }
+        .task { await autoConnect() }
+    }
+
+    private var explanation: String {
+        let build = Distribution.current
+        if build.searchesLocalNetwork {
+            return "\(build.label): tries the Mac on this network first, "
+                + "then falls back to the deployed server."
+        }
+        return "\(build.label): connects to the deployed server."
+    }
+
+    private var manualSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Address") {
                     TextField("192.168.1.10:8000", text: $manualHost)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
-                    Button("Connect") {
-                        Task { await connectManually() }
-                    }
-                    .disabled(manualHost.isEmpty || checking)
+                }
+                Section {
+                    SecureField("Token (only if the server needs one)", text: $token)
+                } footer: {
+                    Text("A server exposed to the internet should be run with "
+                         + "STEMS_TOKEN set. Leave this empty on a home network.")
                 }
             }
-
-            if let error {
-                Section { Text(error).foregroundStyle(.red).font(.callout) }
+            .navigationTitle("Connect")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showingManual = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Connect") {
+                        showingManual = false
+                        Task { await connectManually() }
+                    }
+                    .disabled(manualHost.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
             }
+            .onAppear { token = client.token }
         }
-        .navigationTitle("Musiclab")
-        .onAppear { discovery.start() }
-        .onDisappear { discovery.stop() }
+    }
+
+    private func autoConnect() async {
+        error = nil
+        if let url = await resolver.resolve(using: client, discovery: discovery) {
+            client.baseURL = url
+        }
     }
 
     private func connectManually() async {
+        if !token.isEmpty { client.token = token }
         var text = manualHost.trimmingCharacters(in: .whitespaces)
         if !text.contains("://") { text = "http://\(text)" }
         guard let url = URL(string: text) else {
@@ -91,7 +152,7 @@ struct ConnectView: View {
             client.baseURL = url
             discovery.stop()
         } else {
-            error = "No stems server answered at \(url.absoluteString)."
+            error = "No server answered at \(url.absoluteString)."
         }
     }
 }

@@ -26,10 +26,33 @@ final class StemsClient {
 
     private(set) var downloadProgress: Double = 0
 
+    /// Sent as a bearer token when the server asks for one. A token typed in
+    /// by hand wins over the one baked into the build.
+    var token: String {
+        get {
+            Keychain.read("serverToken")
+                ?? (Bundle.main.object(forInfoDictionaryKey: "MusiclabCloudToken") as? String ?? "")
+        }
+        set {
+            newValue.isEmpty ? Keychain.delete("serverToken")
+                             : Keychain.write("serverToken", value: newValue)
+        }
+    }
+
     init() {
         if let saved = UserDefaults.standard.string(forKey: "baseURL") {
             baseURL = URL(string: saved)
         }
+    }
+
+    /// Every outgoing request goes through here so none forgets the token.
+    func request(_ url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        let token = self.token
+        if !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
     }
 
     private var decoder: JSONDecoder { JSONDecoder() }
@@ -37,7 +60,7 @@ final class StemsClient {
     private func get<T: Decodable>(_ path: String) async throws -> T {
         guard let baseURL else { throw ClientError.notConnected }
         let (data, response) = try await URLSession.shared.data(
-            from: baseURL.appendingPathComponent(path)
+            for: request(baseURL.appendingPathComponent(path))
         )
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             throw ClientError.badResponse(http.statusCode)
@@ -47,7 +70,7 @@ final class StemsClient {
 
     /// Confirms a host really is a stems server before we adopt it.
     func probe(_ url: URL) async -> Bool {
-        var request = URLRequest(url: url.appendingPathComponent("api/health"))
+        var request = self.request(url.appendingPathComponent("api/health"))
         request.timeoutInterval = 3
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
@@ -106,7 +129,7 @@ final class StemsClient {
             let destination = directory.appendingPathComponent("\(stem.name).m4a")
             if !FileManager.default.fileExists(atPath: destination.path) {
                 let remote = baseURL.appendingPathComponent("files/\(slug)/\(spatial)")
-                let (temp, response) = try await URLSession.shared.download(from: remote)
+                let (temp, response) = try await URLSession.shared.download(for: request(remote))
                 if let http = response as? HTTPURLResponse, http.statusCode != 200 {
                     throw ClientError.badResponse(http.statusCode)
                 }
@@ -137,14 +160,14 @@ extension StemsClient {
     func scene(slug: String) async -> SpatialScene? {
         guard let baseURL else { return nil }
         let url = baseURL.appendingPathComponent("api/library/\(slug)/scene")
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(for: request(url)) else { return nil }
         return try? JSONDecoder().decode(SpatialScene.self, from: data)
     }
 
     func saveScene(_ scene: SpatialScene, slug: String) async {
         guard let baseURL, let body = try? JSONEncoder().encode(scene) else { return }
-        var request = URLRequest(
-            url: baseURL.appendingPathComponent("api/library/\(slug)/scene")
+        var request = self.request(
+            baseURL.appendingPathComponent("api/library/\(slug)/scene")
         )
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -160,7 +183,7 @@ extension StemsClient {
         _ path: String, body: Body
     ) async throws -> Reply {
         guard let baseURL else { throw ClientError.notConnected }
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        var request = self.request(baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
@@ -202,7 +225,7 @@ extension StemsClient {
     func batch(id: String) async throws -> [JobStatus] {
         guard let baseURL else { throw ClientError.notConnected }
         let (data, _) = try await URLSession.shared.data(
-            from: baseURL.appendingPathComponent("api/batch/\(id)")
+            for: request(baseURL.appendingPathComponent("api/batch/\(id)"))
         )
         return try JSONDecoder().decode(BatchStatus.self, from: data).jobs
     }

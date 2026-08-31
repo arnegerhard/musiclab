@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
+import secrets
 import threading
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -22,6 +24,23 @@ SERVICE_TYPE = "_stems._tcp.local."
 WEB_DIR = Path(__file__).parent / "web"
 
 app = FastAPI(title="stems")
+
+# Set STEMS_TOKEN when the server is reachable from the internet. Without it
+# anyone who finds the hostname can read the whole library and make the machine
+# download and separate arbitrary videos. Unset (the default) leaves the server
+# open, which is fine on a home network and necessary for zero-setup discovery.
+API_TOKEN = os.environ.get("STEMS_TOKEN", "").strip()
+
+
+@app.middleware("http")
+async def require_token(request: Request, call_next):
+    if API_TOKEN:
+        header = request.headers.get("authorization", "")
+        expected = f"Bearer {API_TOKEN}"
+        # Compared in constant time so the token cannot be guessed byte by byte.
+        if not secrets.compare_digest(header, expected):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
 
 # Separation saturates the machine, so one job at a time; the rest queue.
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -321,8 +340,12 @@ def _job_dir(slug: str) -> Path:
 
 @app.get("/api/health")
 def health():
-    """Lets the iOS app confirm a discovered host is really a stems server."""
-    return {"service": "stems", "version": 1}
+    """Lets the app confirm a host is a stems server, and its token is right.
+
+    Sits behind the same token check as everything else, so a successful probe
+    also proves the credentials work.
+    """
+    return {"service": "stems", "version": 1, "requires_token": bool(API_TOKEN)}
 
 
 @app.get("/api/library/{slug}/scene")
@@ -396,16 +419,31 @@ def _advertise(port: int):
         return None, None
 
 
-def serve(port: int = 8000, host: str = "0.0.0.0") -> int:
-    """Serve on all interfaces by default: the iOS app connects over the LAN."""
+def serve(port: int = 8000, host: str = "0.0.0.0", bonjour: bool | None = None) -> int:
+    """Serve on all interfaces by default: the iOS app connects over the LAN.
+
+    Bonjour is a local-network convenience only. It cannot cross the internet,
+    and a deployed instance has no LAN worth advertising on, so anywhere but
+    this Mac it should be off: set STEMS_BONJOUR=0 or pass --no-bonjour.
+    """
     import uvicorn
 
-    zeroconf, info = _advertise(port)
+    if bonjour is None:
+        bonjour = os.environ.get("STEMS_BONJOUR", "1").strip() not in ("0", "false", "no")
+
+    zeroconf = info = None
+    if bonjour:
+        zeroconf, info = _advertise(port)
+
     address = _local_ip()
     print(f"stems -> http://127.0.0.1:{port}   (this Mac)")
     print(f"         http://{address}:{port}   (iPhone, same Wi-Fi)")
     if zeroconf:
-        print("         advertised over Bonjour; the iOS app should find it itself")
+        print("         advertised over Bonjour; the app should find it itself")
+    else:
+        print("         Bonjour off — clients need the address or the public hostname")
+    print(f"         token auth: {'on' if API_TOKEN else 'OFF (fine on a home network)'}")
+
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")
     finally:

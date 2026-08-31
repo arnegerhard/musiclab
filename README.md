@@ -176,6 +176,108 @@ Models used: `htdemucs_6s` for the six-way split,
 `mel_band_roformer_karaoke` for lead vs. backing, and `MDX23C-DrumSep` for the
 kit. All are downloaded via [`audio-separator`](https://github.com/nomadkaraoke/python-audio-separator).
 
+## Reaching the server from anywhere
+
+Bonjour only works on the local network, so it is for local development only.
+Anywhere else it is off:
+
+```bash
+.venv/bin/python -m stems.cli --serve --no-bonjour      # or STEMS_BONJOUR=0
+```
+
+### Where the app looks
+
+The app picks a server by how the build reached the device, and always falls
+back to the deployed one:
+
+| Build | First choice | Fallback |
+|---|---|---|
+| Simulator | the Mac, via Bonjour | deployed server |
+| Xcode → phone | the Mac, via Bonjour | deployed server |
+| TestFlight | deployed server | — |
+| App Store | deployed server | — |
+
+TestFlight and App Store builds never browse the local network: they are on
+somebody else's phone, on a network where Bonjour cannot reach your Mac, and
+browsing would trigger a local-network permission prompt for no reason.
+
+The deployed address is a build setting, so nothing is hardcoded in source:
+
+```bash
+xcodebuild ... MUSICLAB_CLOUD_URL=https://stems.jetsons.info \
+               MUSICLAB_CLOUD_TOKEN=<the STEMS_TOKEN value>
+```
+
+A development build can be made to behave like a shipped one, which is the only
+way to exercise that path before actually shipping:
+
+```bash
+xcrun simctl launch <udid> info.jetsons.musiclab --args -distribution appStore
+```
+
+### Deploying: Cloudflare Tunnel
+
+**Separation cannot run on Cloudflare.** Workers execute JavaScript and WASM,
+not PyTorch. Containers top out at 4 vCPU and 12 GiB with no GPU, sleep when
+idle, and would need the ~700 MB of model weights on every cold start — for
+work that already runs at 2.5x realtime on the Mac.
+
+So the Mac keeps doing the work, and Cloudflare Tunnel gives it a public
+hostname. `cloudflared` dials out to Cloudflare, so no port is forwarded and no
+inbound firewall rule is needed.
+
+```bash
+brew install cloudflared
+cloudflared tunnel login                                  # pick jetsons.info
+cloudflared tunnel create musiclab
+cloudflared tunnel route dns musiclab stems.jetsons.info
+```
+
+`~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: <the UUID that `create` printed>
+credentials-file: /Users/arne/.cloudflared/<UUID>.json
+ingress:
+  - hostname: stems.jetsons.info
+    service: http://localhost:8000
+  - service: http_status:404
+```
+
+Then run it, with a token set so the world cannot use your Mac as a
+free transcoding service:
+
+```bash
+STEMS_TOKEN=$(openssl rand -hex 24) .venv/bin/python -m stems.cli --serve --no-bonjour
+cloudflared tunnel run musiclab
+```
+
+`sudo cloudflared service install` keeps the tunnel up across reboots.
+
+### What actually changes in Cloudflare
+
+Mostly nothing by hand — `tunnel route dns` writes the DNS record for you:
+
+| Where | What | Why |
+|---|---|---|
+| **DNS** | proxied `CNAME` `stems` → `<UUID>.cfargotunnel.com` | created by `route dns`; leave the orange cloud on |
+| **SSL/TLS** | mode **Full** | Cloudflare terminates TLS; the tunnel is already encrypted |
+| **Cache rules** | bypass cache for `/api/*` | manifests and job status change; stale ones break the app |
+| **Cache rules** | cache `/files/*` | stems never change once written, so serve them from the edge |
+| **Zero Trust → Tunnels** | the tunnel appears here | where you check it is healthy |
+
+Two Cloudflare limits worth knowing: the proxy read timeout is **125 seconds**,
+which is fine because separation is queued and polled rather than held open on
+one request; and audio seeking relies on range requests, which the proxy passes
+through.
+
+### If you want the Mac to be off
+
+This design needs the Mac awake. Making playback survive a sleeping Mac is a
+different job: sync `out/` to **R2** and put a Worker in front to serve the
+library and files. Separation would still need the Mac, or a GPU host — R2 and
+a Worker only remove the Mac from the *playback* path.
+
 ## Playlists
 
 The app reads playlists from **Apple Music** and **Spotify** so you can pick
