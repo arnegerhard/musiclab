@@ -21,7 +21,11 @@ struct LibraryView: View {
                 }
             }
             if let error {
-                Text(error).foregroundStyle(.red).font(.callout)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(error).foregroundStyle(.red).font(.callout)
+                    Button("Find the server again") { client.baseURL = nil }
+                        .font(.callout)
+                }
             }
         }
         .navigationTitle("Library")

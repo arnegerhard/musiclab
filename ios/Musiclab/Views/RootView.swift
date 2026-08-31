@@ -2,18 +2,42 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(StemsClient.self) private var client
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var checkedSavedServer = false
 
     var body: some View {
-        if client.baseURL == nil {
-            NavigationStack { ConnectView() }
-        } else {
-            TabView {
-                NavigationStack { LibraryView() }
-                    .tabItem { Label("Library", systemImage: "square.stack.3d.up") }
-                NavigationStack { PlaylistsView() }
-                    .tabItem { Label("Playlists", systemImage: "music.note.list") }
+        Group {
+            if !checkedSavedServer {
+                ProgressView().task { await validateSavedServer() }
+            } else if client.baseURL == nil {
+                NavigationStack { ConnectView() }
+            } else {
+                TabView {
+                    NavigationStack { LibraryView() }
+                        .tabItem { Label("Library", systemImage: "square.stack.3d.up") }
+                    NavigationStack { PlaylistsView() }
+                        .tabItem { Label("Playlists", systemImage: "music.note.list") }
+                }
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            // Coming back to the app is exactly when the network may have
+            // changed underneath it -- a different Wi-Fi, a Mac that went to
+            // sleep, a new DHCP address.
+            if phase == .active, checkedSavedServer {
+                Task { await validateSavedServer() }
+            }
+        }
+    }
+
+    /// A remembered address is a guess, not a fact: the Mac may have moved,
+    /// changed port, or shut down. Probe it, and if it is gone drop back to
+    /// discovery so the usual local-then-cloud fallback can run.
+    private func validateSavedServer() async {
+        if let saved = client.baseURL, await client.probe(saved) == false {
+            client.baseURL = nil
+        }
+        checkedSavedServer = true
     }
 }
 
