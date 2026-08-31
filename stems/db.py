@@ -8,6 +8,7 @@ still tear a write. This is still a single file with no server to run.
 
 from __future__ import annotations
 
+import os
 import secrets
 import sqlite3
 import threading
@@ -56,8 +57,11 @@ def connect() -> sqlite3.Connection:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(DB_PATH, timeout=10)
         connection.row_factory = sqlite3.Row
-        # WAL lets the worker thread write while requests read.
-        connection.execute("PRAGMA journal_mode=WAL")
+        # WAL lets the worker thread write while requests read. On a network
+        # volume its -wal and -shm side files are unreliable, so deployments
+        # there set MUSICLAB_SQLITE_JOURNAL=DELETE instead.
+        journal = os.environ.get("MUSICLAB_SQLITE_JOURNAL", "WAL")
+        connection.execute(f"PRAGMA journal_mode={journal}")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.executescript(SCHEMA)
         _local.connection = connection

@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 import traceback
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import match, pipeline
+from . import jobs, match, pipeline
 from .api_auth import current_user
 from .api_auth import router as auth_router
 from .config import DEFAULT_FORMAT, OUT_DIR
@@ -33,13 +31,8 @@ def user_dir(user: dict) -> Path:
     return path
 
 # Separation saturates the machine, so one job at a time; the rest queue.
-_executor = ThreadPoolExecutor(max_workers=1)
-_jobs: dict[str, dict] = {}
-_requests: dict[str, "JobRequest"] = {}
-_owners: dict[str, dict] = {}          # job id -> the user who queued it
-_batches: dict[str, list[str]] = {}
-_batch_owners: dict[str, str] = {}
-_lock = threading.Lock()
+# The request body and owner are needed again when a paused job is confirmed,
+# so they ride along inside the stored job rather than in a second dict.
 
 
 class PlaylistTrack(BaseModel):
@@ -76,13 +69,16 @@ class ConfirmRequest(BaseModel):
 
 
 def _update(job_id: str, **fields):
-    with _lock:
-        _jobs[job_id].update(fields)
+    jobs.store.update(job_id, **fields)
 
 
 def _append_log(job_id: str, message: str):
-    with _lock:
-        _jobs[job_id]["log"].append(message)
+    jobs.store.append_log(job_id, message)
+
+
+def _public_job(job: dict) -> dict:
+    """The stored request is internal plumbing; the client never needs it."""
+    return {k: v for k, v in job.items() if k != "request"}
 
 
 def _candidate_json(candidate: match.Candidate) -> dict:
@@ -128,7 +124,10 @@ def _resolve(job_id: str, request: JobRequest) -> str | None:
     return best.url
 
 
-def _run_job(job_id: str, request: JobRequest):
+def _run_job(job_id: str, request: dict | JobRequest):
+    """Entry point for a worker, which may be another process entirely, so the
+    request arrives as plain data."""
+    request = request if isinstance(request, JobRequest) else JobRequest(**request)
     _update(job_id, status="running", phase="Starting")
     url = _resolve(job_id, request)
     if url is None:
@@ -136,7 +135,8 @@ def _run_job(job_id: str, request: JobRequest):
     _run_separation(job_id, request, url)
 
 
-def _run_separation(job_id: str, request: JobRequest, url: str):
+def _run_separation(job_id: str, request: dict | JobRequest, url: str):
+    request = request if isinstance(request, JobRequest) else JobRequest(**request)
     _update(job_id, status="running", phase="Downloading audio")
 
     def progress(event):
@@ -162,14 +162,14 @@ def _run_separation(job_id: str, request: JobRequest, url: str):
         elif kind == "analyse_start":
             _update(job_id, phase="Measuring levels")
 
-    with _lock:
-        matched = _jobs[job_id].get("match")
+    job = jobs.store.get(job_id) or {}
+    matched = job.get("match")
     extra = {"matched_from": matched, "playlist_track": request.track.model_dump()} if request.track else None
 
     try:
         result = pipeline.run(
             url,
-            out_dir=user_dir(_owners[job_id]),
+            out_dir=user_dir({"id": job["user_id"]}),
             split_vocals=request.split_vocals,
             split_drums=request.split_drums,
             audio_format=request.audio_format,
@@ -190,21 +190,19 @@ def _run_separation(job_id: str, request: JobRequest, url: str):
 
 def _enqueue(request: JobRequest, user: dict) -> str:
     job_id = uuid.uuid4().hex[:12]
-    with _lock:
-        _jobs[job_id] = {
-            "id": job_id,
-            "user_id": user["id"],
-            "status": "queued",
-            "phase": "Queued",
-            "progress": 0,
-            "url": request.url,
-            "title": request.track.title if request.track else None,
-            "artist": request.track.artist if request.track else None,
-            "log": [],
-        }
-        _requests[job_id] = request
-        _owners[job_id] = user
-    _executor.submit(_run_job, job_id, request)
+    jobs.store.create(job_id, {
+        "id": job_id,
+        "user_id": user["id"],
+        "status": "queued",
+        "phase": "Queued",
+        "progress": 0,
+        "url": request.url,
+        "title": request.track.title if request.track else None,
+        "artist": request.track.artist if request.track else None,
+        "log": [],
+        "request": request.model_dump(),
+    })
+    jobs.runner.submit(_run_job, job_id, request.model_dump())
     return job_id
 
 
@@ -225,25 +223,21 @@ def create_job(request: JobRequest, user: dict = Depends(current_user)):
 @app.post("/api/jobs/{job_id}/confirm")
 def confirm_job(job_id: str, choice: ConfirmRequest, user: dict = Depends(current_user)):
     """Accept one of the offered matches and let the job continue."""
-    with _lock:
-        job = _jobs.get(job_id)
-        request = _requests.get(job_id)
-        # Not "forbidden": another user's job should look like no job at all.
-        if job is None or request is None or job.get("user_id") != user["id"]:
-            raise HTTPException(404, "no such job")
-        if job["status"] != "needs_confirmation":
-            raise HTTPException(409, "this job is not waiting for confirmation")
-        chosen = next(
-            (c for c in job.get("candidates", []) if c["video_id"] == choice.video_id),
-            None,
-        )
-        if chosen is None:
-            raise HTTPException(400, "that match was not offered for this job")
-        job["match"] = chosen
-        job["status"] = "queued"
-        job["phase"] = "Queued"
+    job = jobs.store.get(job_id)
+    # Not "forbidden": another user's job should look like no job at all.
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+    if job["status"] != "needs_confirmation":
+        raise HTTPException(409, "this job is not waiting for confirmation")
+    chosen = next(
+        (c for c in job.get("candidates", []) if c["video_id"] == choice.video_id),
+        None,
+    )
+    if chosen is None:
+        raise HTTPException(400, "that match was not offered for this job")
+    jobs.store.update(job_id, match=chosen, status="queued", phase="Queued")
 
-    _executor.submit(_run_separation, job_id, request, chosen["url"])
+    jobs.runner.submit(_run_separation, job_id, job["request"], chosen["url"])
     return {"ok": True}
 
 
@@ -266,33 +260,33 @@ def create_batch(request: BatchRequest, user: dict = Depends(current_user)):
         for track in request.tracks
     ]
     batch_id = uuid.uuid4().hex[:12]
-    with _lock:
-        _batches[batch_id] = ids
-        _batch_owners[batch_id] = user["id"]
+    jobs.store.set_batch(batch_id, ids, user["id"])
     return {"id": batch_id, "jobs": ids}
 
 
 @app.get("/api/batch/{batch_id}")
 def get_batch(batch_id: str, user: dict = Depends(current_user)):
-    with _lock:
-        ids = _batches.get(batch_id)
-        if ids is None or _batch_owners.get(batch_id) != user["id"]:
-            raise HTTPException(404, "no such batch")
-        return {"id": batch_id, "jobs": [dict(_jobs[i]) for i in ids if i in _jobs]}
+    batch = jobs.store.get_batch(batch_id)
+    if batch is None or batch.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such batch")
+    found = [jobs.store.get(i) for i in batch["jobs"]]
+    return {"id": batch_id, "jobs": [_public_job(j) for j in found if j]}
 
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str, user: dict = Depends(current_user)):
-    with _lock:
-        job = _jobs.get(job_id)
-        if job is None or job.get("user_id") != user["id"]:
-            raise HTTPException(404, "no such job")
-        return dict(job)
+    job = jobs.store.get(job_id)
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+    return _public_job(job)
 
 
 @app.get("/api/library")
 def library(user: dict = Depends(current_user)):
     """This user's separated tracks, and only theirs."""
+    # A worker may have finished a song in another container since the last
+    # request; on a shared volume that is not visible until we look again.
+    jobs.refresh()
     entries = []
     root = user_dir(user)
     if root.exists():
@@ -330,8 +324,15 @@ def _job_dir(user: dict, slug: str) -> Path:
     """
     root = user_dir(user).resolve()
     path = (root / slug).resolve()
-    if not path.is_relative_to(root) or not (path / "manifest.json").exists():
+    if not path.is_relative_to(root):
         raise HTTPException(404, "no such track")
+    if not (path / "manifest.json").exists():
+        # Might be a song that has only just finished elsewhere. Look again
+        # before deciding it does not exist -- but only then, since refreshing
+        # on every byte range would be wasteful.
+        jobs.refresh()
+        if not (path / "manifest.json").exists():
+            raise HTTPException(404, "no such track")
     return path
 
 

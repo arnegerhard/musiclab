@@ -20,6 +20,10 @@ dependencies = [
     "pyjwt[crypto]>=2.8",
 ]
 
+[project.optional-dependencies]
+# Deploying to Modal; not needed to run the server on the Mac.
+modal = ["modal>=1.5"]
+
 [project.scripts]
 stems = "stems.cli:main"
 

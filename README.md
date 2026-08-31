@@ -286,6 +286,57 @@ which is fine because separation is queued and polled rather than held open on
 one request; and audio seeking relies on range requests, which the proxy passes
 through.
 
+### Running it on a GPU instead
+
+`modal_app.py` deploys the same pipeline to Modal, where separation runs on an
+A100 rather than the Mac's GPU.
+
+```bash
+uv pip install modal
+modal token new                        # once, opens a browser
+modal deploy modal_app.py
+modal run modal_app.py --email you@example.com --password ...
+```
+
+Then point the app at the printed `https://….modal.run` URL.
+
+**The library moves with the compute.** A finished song is ~150 MB of stems,
+and shipping that back to the Mac over a domestic uplink would cost back
+everything the GPU won, so the volume holding the library lives beside the
+worker.
+
+Two containers, because they want different hardware:
+
+| | Hardware | Why |
+|---|---|---|
+| `web` | CPU, one container | Serves the API and owns the SQLite file |
+| `worker` | A100, up to ten | One song each, so a playlist separates in parallel |
+
+That is the real speed win. A single song is bounded by the model; a
+twenty-song playlist used to run one at a time and now does not.
+
+Since those are separate containers, job state moved out of process memory into
+a `modal.Dict`, and the volume is committed by the worker and reloaded by the
+web app -- `stems/jobs.py` holds both seams, and locally both are no-ops.
+
+Model weights are baked into the image at build time. Downloading 1.3 GB on
+first request instead would put a minute of cold start in front of a job that
+takes about a minute.
+
+### Measured, and not
+
+The stage timings below are measured on an M4; the GPU figures are not. Modal
+was written and type-checked but never deployed, because deploying needs a
+`modal token new` that only you can run.
+
+| Stage | Share of runtime on M4 |
+|---|---|
+| Demucs 6-stem | 11% |
+| **Mel-Band Roformer (lead/backing)** | **65%** |
+| MDX23C (drum kit) | 24% |
+
+The vocal split dominates, so it is what any GPU has to be fast at.
+
 ### If you want the Mac to be off
 
 This design needs the Mac awake. Making playback survive a sleeping Mac is a
