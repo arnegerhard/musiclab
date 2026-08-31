@@ -342,8 +342,16 @@ you ask for it separately (`uv tool install modal`):
 uv pip install modal
 .venv/bin/modal token new                   # once, opens a browser
 .venv/bin/modal deploy modal_app.py
-.venv/bin/modal run modal_app.py --email you@example.com --password ...
+MUSICLAB_PASSWORD=... .venv/bin/modal run modal_app.py::account --email you@example.com
 ```
+
+**Only the web container may write the database.** SQLite lives on a volume,
+and a volume is snapshotted per container: a second container's writes are
+invisible to the web app, and committing from both lets one silently overwrite
+the other's whole file. So account changes go over HTTP, even from the command
+line -- `::account` signs up through the deployment rather than touching the
+file. Anything that writes the database from another Modal function looks like
+it worked and then is not there.
 
 Then point the app at the printed `https://….modal.run` URL.
 

@@ -117,6 +117,7 @@ def _agent(args) -> int:
 def _accounts(args) -> int:
     """Account admin. Kept out of the server so it works with it stopped."""
     import getpass
+    import os
 
     from . import auth, users
 
@@ -128,6 +129,13 @@ def _accounts(args) -> int:
                 return 1
             user = users.create(args.add_user, password)
             print(f'Created {user["email"]} ({user["id"]})')
+
+        if args.set_password:
+            # From the environment when scripted, so it stays out of argv and
+            # therefore out of the process list.
+            password = os.environ.get("MUSICLAB_PASSWORD") or getpass.getpass("New password: ")
+            user = users.set_password(args.set_password, password)
+            print(f'Password changed for {user["email"]}')
 
         if args.claim:
             moved = users.claim(args.claim)
@@ -212,6 +220,11 @@ def main(argv=None) -> int:
         "--add-user", metavar="EMAIL", help="create an account (prompts for a password)"
     )
     parser.add_argument(
+        "--set-password",
+        metavar="EMAIL",
+        help="change an account's password (prompts, or reads MUSICLAB_PASSWORD)",
+    )
+    parser.add_argument(
         "--list-users", action="store_true", help="show accounts and their track counts"
     )
     parser.add_argument(
@@ -239,7 +252,7 @@ def main(argv=None) -> int:
     if args.agent or args.worker:
         return _agent(args)
 
-    if args.add_user or args.list_users or args.claim:
+    if args.add_user or args.list_users or args.claim or args.set_password:
         return _accounts(args)
 
     if args.serve:

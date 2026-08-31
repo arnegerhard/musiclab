@@ -266,23 +266,33 @@ def bench():
 
 
 @app.local_entrypoint()
-def create_account(email: str = "", password: str = ""):
-    """`modal run modal_app.py --email you@example.com --password ...`"""
+def account(email: str = "", password: str = ""):
+    """Create an account: `MUSICLAB_PASSWORD=... modal run modal_app.py::account --email you@example.com`
+
+    Deliberately over HTTP rather than by touching the database directly.
+    SQLite lives on a volume, and a volume is snapshotted per container: a
+    second container's writes are invisible to the web app, and committing
+    from both would let one overwrite the other's whole file. The web
+    container is the only writer, so account changes go through it.
+    """
+    import json
+    import os
+    import urllib.error
+    import urllib.request
+
+    password = password or os.environ.get("MUSICLAB_PASSWORD", "")
     if not email or not password:
-        print("Pass --email and --password.")
+        print("Pass --email, and either --password or MUSICLAB_PASSWORD.")
         return
-    print(make_account.remote(email, password))
 
-
-@app.function(image=image, volumes={DATA_DIR: data, DB_DIR: database})
-def make_account(email: str, password: str) -> str:
-    from stems import users
-
-    _install_runtime()
+    url = web.get_web_url().rstrip("/") + "/api/auth/signup"
+    body = json.dumps({"email": email, "password": password}).encode()
+    request = urllib.request.Request(
+        url, data=body, headers={"Content-Type": "application/json"}
+    )
     try:
-        user = users.create(email, password)
-    except Exception as exc:
-        return f"Could not create the account: {exc}"
-    data.commit()
-    database.commit()
-    return f"Created {user['email']} ({user['id']})"
+        with urllib.request.urlopen(request, timeout=60) as response:
+            json.load(response)
+        print(f"Created {email}")
+    except urllib.error.HTTPError as exc:
+        print(f"Could not create it: {json.load(exc).get('detail', exc.reason)}")

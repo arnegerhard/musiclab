@@ -20,6 +20,15 @@ def create(email: str, password: str, display_name: str | None = None) -> dict:
     )
 
 
+def set_password(email: str, password: str) -> dict:
+    """Change an account's password, for when nobody can get in to reset it."""
+    user = db.user_by_email(auth.normalise_email(email))
+    if user is None:
+        raise auth.AuthError(f"No account for {email}.")
+    db.set_password(user["id"], auth.hash_password(password))
+    return user
+
+
 def listing() -> list[dict]:
     users = []
     for user in db.all_users():
