@@ -64,8 +64,7 @@ struct ConnectView: View {
                 if resolver.isResolving {
                     HStack(spacing: 12) {
                         ProgressView()
-                        Text(Distribution.current.searchesLocalNetwork
-                             ? "Looking for your Mac…" : "Connecting…")
+                        Text("Looking for your Mac…")
                             .foregroundStyle(.secondary)
                     }
                 } else {
@@ -114,12 +113,9 @@ struct ConnectView: View {
     }
 
     private var explanation: String {
-        let build = Distribution.current
-        if build.searchesLocalNetwork {
-            return "\(build.label): tries the Mac on this network first, "
-                + "then falls back to the deployed server."
-        }
-        return "\(build.label): connects to the deployed server."
+        let fallback = ServerResolver.cloudURL?.host() ?? "the deployed server"
+        return "\(Distribution.current.label): the Mac on this network if it is "
+            + "running, otherwise \(fallback)."
     }
 
     private var manualSheet: some View {

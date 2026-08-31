@@ -1,13 +1,8 @@
 import Foundation
 import Observation
 
-/// How this build reached the device. It decides where to look for a server.
-///
-/// A build running from Xcode or the simulator is being developed against the
-/// Mac, so it should find the Mac first. A build from TestFlight or the App
-/// Store is on somebody's phone, possibly nowhere near the Mac and on a
-/// network where Bonjour cannot help, so it goes straight to the public
-/// hostname and never triggers a local-network permission prompt.
+/// How this build reached the device. Shown in the footer so it is obvious
+/// which build is running; it no longer changes where the server is looked for.
 enum Distribution {
     case simulator, development, testFlight, appStore
 
@@ -47,14 +42,6 @@ enum Distribution {
         return .appStore
         #endif
     }()
-
-    /// Whether to look for a server on the local network before the cloud.
-    var searchesLocalNetwork: Bool {
-        switch self {
-        case .simulator, .development: return true
-        case .testFlight, .appStore: return false
-        }
-    }
 
     var label: String {
         switch self {
@@ -106,11 +93,12 @@ final class ServerResolver {
         lastError = nil
         defer { isResolving = false }
 
-        if Distribution.current.searchesLocalNetwork {
-            if let found = await findLocal(using: client, discovery: discovery) {
-                source = .local(name: found.name)
-                return found.url
-            }
+        // Always the Mac first, whatever the build: it is faster, it is free,
+        // and it is where songs are separated. The deployed host is the
+        // fallback for when it is not running or not on this network.
+        if let found = await findLocal(using: client, discovery: discovery) {
+            source = .local(name: found.name)
+            return found.url
         }
 
         if let cloud = Self.cloudURL, await client.probe(cloud) {

@@ -6,12 +6,60 @@ struct BatchView: View {
     let batchID: String
 
     @Environment(StemsClient.self) private var client
+    @Environment(\.dismiss) private var dismiss
     @State private var jobs: [JobStatus] = []
     @State private var reviewing: JobStatus?
+    /// Separation takes minutes, so a poll failing once means little. Several
+    /// in a row means the server is gone and the screen is lying to us.
+    @State private var missedPolls = 0
+    @State private var lost = false
 
     private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    private let missesBeforeGivingUp = 3
 
     var body: some View {
+        Group {
+            if lost { lostServer } else { progress }
+        }
+        .navigationTitle("Separating")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $reviewing) { job in
+            MatchReviewView(job: job) { candidate in
+                Task {
+                    try? await client.confirm(job: job.id, videoId: candidate.videoId)
+                    await reload()
+                }
+            }
+        }
+        .onReceive(ticker) { _ in
+            guard !lost else { return }
+            Task { await reload() }
+        }
+        .task { await reload() }
+    }
+
+    /// The server went away mid-separation. Say so plainly and get out of the
+    /// way, rather than spinning on a job that is no longer running.
+    private var lostServer: some View {
+        ContentUnavailableView {
+            Label("Lost the server", systemImage: "bolt.horizontal.circle")
+        } description: {
+            Text("The server stopped answering, so separation is no longer "
+                 + "running. Anything already finished is safe.")
+        } actions: {
+            Button("Find a server again") {
+                Task {
+                    // Drops to the connect screen, which retries the Mac and
+                    // then the fallback host.
+                    client.baseURL = nil
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            Button("Back") { dismiss() }
+        }
+    }
+
+    private var progress: some View {
         List {
             if !needsReview.isEmpty {
                 Section("Needs your call") {
@@ -40,18 +88,6 @@ struct BatchView: View {
                 }
             }
         }
-        .navigationTitle("Separating")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $reviewing) { job in
-            MatchReviewView(job: job) { candidate in
-                Task {
-                    try? await client.confirm(job: job.id, videoId: candidate.videoId)
-                    await reload()
-                }
-            }
-        }
-        .onReceive(ticker) { _ in Task { await reload() } }
-        .task { await reload() }
     }
 
     private var needsReview: [JobStatus] { jobs.filter(\.needsConfirmation) }
@@ -81,7 +117,13 @@ struct BatchView: View {
     }
 
     private func reload() async {
-        if let updated = try? await client.batch(id: batchID) { jobs = updated }
+        do {
+            jobs = try await client.batch(id: batchID)
+            missedPolls = 0
+        } catch {
+            missedPolls += 1
+            if missedPolls >= missesBeforeGivingUp { lost = true }
+        }
     }
 }
 

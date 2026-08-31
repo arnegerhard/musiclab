@@ -206,19 +206,15 @@ Anywhere else it is off:
 
 ### Where the app looks
 
-The app picks a server by how the build reached the device, and always falls
-back to the deployed one:
+Always the Mac on this network first, whatever the build -- it is faster, it is
+free, and it is where songs are separated. The deployed host is the fallback
+for when the Mac is not running or not on this network.
 
-| Build | First choice | Fallback |
-|---|---|---|
-| Simulator | the Mac, via Bonjour | deployed server |
-| Xcode → phone | the Mac, via Bonjour | deployed server |
-| TestFlight | deployed server | — |
-| App Store | deployed server | — |
-
-TestFlight and App Store builds never browse the local network: they are on
-somebody else's phone, on a network where Bonjour cannot reach your Mac, and
-browsing would trigger a local-network permission prompt for no reason.
+A remembered address is re-checked at launch and whenever the app returns to
+the foreground, so a Mac that went to sleep or changed address does not strand
+the app. If the server disappears **during** a separation, the progress screen
+notices after three missed polls and says so, rather than spinning on a job
+that is no longer running.
 
 The deployed address is a build setting, so nothing is hardcoded in source:
 
