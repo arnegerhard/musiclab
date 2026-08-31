@@ -101,7 +101,9 @@ final class ServerResolver {
             return found.url
         }
 
-        if let cloud = Self.cloudURL, await client.probe(cloud) {
+        // Long enough for a cold start. Three seconds made a perfectly healthy
+        // deployment look unreachable on the first launch of the day.
+        if let cloud = Self.cloudURL, await client.probe(cloud, timeout: 25) {
             source = .cloud
             return cloud
         }

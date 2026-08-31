@@ -26,6 +26,48 @@ def slugify(value: str, limit: int = 60) -> str:
     return value[:limit].strip("-").lower() or "track"
 
 
+def adopt(audio: Path, dest_dir: Path, metadata: dict) -> Source:
+    """Take audio that arrived some other way and make it look like a download.
+
+    The app fetches from YouTube itself, because YouTube answers a phone on a
+    home or carrier address and refuses a datacenter one. What lands here is
+    whatever stream the phone got, so it still has to be normalised to the
+    44.1 kHz stereo WAV every model expects.
+    """
+    import subprocess
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    wav = dest_dir / "source.wav"
+    result = subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", str(audio),
+            "-ar", str(SAMPLE_RATE), "-ac", "2",
+            str(wav),
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0 or not wav.exists():
+        raise RuntimeError(
+            f"could not decode the uploaded audio: {result.stderr.decode()[:200]}"
+        )
+
+    duration = float(metadata.get("duration") or 0.0)
+    if duration <= 0:
+        import soundfile as sf
+
+        duration = sf.info(str(wav)).duration
+
+    return Source(
+        path=wav,
+        title=metadata.get("title") or "Unknown title",
+        uploader=metadata.get("uploader") or "",
+        duration=duration,
+        webpage_url=metadata.get("url") or "",
+        video_id=metadata.get("video_id") or "",
+    )
+
+
 def fetch(url: str, dest_dir: Path, progress=None) -> Source:
     """Download the best audio stream and decode it to a 44.1kHz stereo WAV."""
     import yt_dlp

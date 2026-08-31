@@ -8,7 +8,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -45,10 +45,22 @@ class PlaylistTrack(BaseModel):
     source_id: str = ""
 
 
+class UploadedTrack(BaseModel):
+    """Audio the app fetched itself, with what it knows about it."""
+
+    title: str = ""
+    uploader: str = ""
+    duration: float | None = None
+    url: str = ""
+    video_id: str = ""
+
+
 class JobRequest(BaseModel):
-    # Either a direct URL, or a playlist track we have to match first.
+    # A direct URL, a playlist track to match first, or audio already uploaded.
     url: str | None = None
     track: PlaylistTrack | None = None
+    uploaded_path: str | None = None
+    uploaded_meta: UploadedTrack | None = None
     split_vocals: bool = True
     split_drums: bool = True
     audio_format: str = DEFAULT_FORMAT
@@ -129,6 +141,10 @@ def _run_job(job_id: str, request: dict | JobRequest):
     request arrives as plain data."""
     request = request if isinstance(request, JobRequest) else JobRequest(**request)
     _update(job_id, status="running", phase="Starting")
+    if request.uploaded_path:
+        # Nothing to find: the app already has the audio.
+        _run_separation(job_id, request, url="")
+        return
     url = _resolve(job_id, request)
     if url is None:
         return
@@ -159,6 +175,8 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
             _append_log(job_id, f'Skipped {event["stage"]}: {event["reason"]}')
         elif kind == "stem_missing":
             _append_log(job_id, f'Warning: {event["file"]} went missing')
+        elif kind == "decode_start":
+            _update(job_id, phase="Decoding the upload")
         elif kind == "analyse_start":
             _update(job_id, phase="Measuring levels")
 
@@ -167,9 +185,16 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
     extra = {"matched_from": matched, "playlist_track": request.track.model_dump()} if request.track else None
 
     try:
+        uploaded = Path(request.uploaded_path) if request.uploaded_path else None
+        if uploaded is not None:
+            # The upload was written by the web container, not this one.
+            jobs.refresh()
+
         result = pipeline.run(
             url,
             out_dir=user_dir({"id": job["user_id"]}),
+            uploaded=uploaded,
+            metadata=request.uploaded_meta.model_dump() if request.uploaded_meta else None,
             split_vocals=request.split_vocals,
             split_drums=request.split_drums,
             audio_format=request.audio_format,
@@ -186,6 +211,11 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
     except Exception as exc:
         traceback.print_exc()
         _update(job_id, status="error", phase="Failed", error=str(exc))
+    finally:
+        # The upload has been decoded into the job folder; keeping the original
+        # would store every song twice.
+        if request.uploaded_path:
+            Path(request.uploaded_path).unlink(missing_ok=True)
 
 
 def _enqueue(request: JobRequest, user: dict) -> str:
@@ -211,6 +241,53 @@ def find_match(track: PlaylistTrack, user: dict = Depends(current_user)):
     """Preview what a playlist track would be matched to, without separating."""
     candidates = match.search(track.title, track.artist, track.duration)
     return {"candidates": [_candidate_json(c) for c in candidates[:5]]}
+
+
+@app.post("/api/upload")
+async def upload(
+    audio: UploadFile = File(...),
+    title: str = Form(""),
+    uploader: str = Form(""),
+    duration: float = Form(0),
+    url: str = Form(""),
+    video_id: str = Form(""),
+    audio_format: str = Form(DEFAULT_FORMAT),
+    user: dict = Depends(current_user),
+):
+    """Take audio the app downloaded and separate it.
+
+    YouTube answers a phone on a home or carrier address and challenges a
+    datacenter one, so the app does the fetching and the server never talks to
+    YouTube at all.
+    """
+    incoming = user_dir(user) / ".uploads"
+    incoming.mkdir(parents=True, exist_ok=True)
+    suffix = Path(audio.filename or "audio.m4a").suffix or ".m4a"
+    destination = incoming / f"{uuid.uuid4().hex[:12]}{suffix}"
+
+    size = 0
+    with destination.open("wb") as handle:
+        while chunk := await audio.read(1 << 20):
+            size += len(chunk)
+            handle.write(chunk)
+    if size == 0:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(400, "the upload was empty")
+
+    # The worker runs in another container and must be able to read this.
+    jobs.publish()
+
+    request = JobRequest(
+        uploaded_path=str(destination),
+        uploaded_meta=UploadedTrack(
+            title=title, uploader=uploader, duration=duration or None,
+            url=url, video_id=video_id,
+        ),
+        audio_format=audio_format,
+    )
+    job_id = _enqueue(request, user)
+    jobs.store.update(job_id, title=title or "Uploaded audio")
+    return {"id": job_id, "bytes": size}
 
 
 @app.post("/api/jobs")

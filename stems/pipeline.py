@@ -134,6 +134,8 @@ def run(
     keep_source: bool = True,
     audio_format: str = DEFAULT_FORMAT,
     extra: dict | None = None,
+    uploaded: Path | None = None,
+    metadata: dict | None = None,
 ) -> Result:
     def emit(**event):
         if progress:
@@ -143,12 +145,17 @@ def run(
     started = time.time()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    emit(kind="download_start", url=url)
     staging = out_dir / f".staging-{int(started)}"
     staging.mkdir(parents=True, exist_ok=True)
-    source = download.fetch(
-        url, staging, progress=lambda f: emit(kind="download_progress", fraction=f)
-    )
+
+    if uploaded is not None:
+        emit(kind="decode_start")
+        source = download.adopt(uploaded, staging, metadata or {})
+    else:
+        emit(kind="download_start", url=url)
+        source = download.fetch(
+            url, staging, progress=lambda f: emit(kind="download_progress", fraction=f)
+        )
     emit(kind="download_done", title=source.title, duration=source.duration)
 
     # Name the job folder after the track now that we know what it is.

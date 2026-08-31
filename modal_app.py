@@ -140,7 +140,7 @@ class ModalRunner:
 def _install_runtime() -> None:
     from stems import db, jobs
 
-    jobs.use(ModalJobStore(job_state), ModalRunner(), data.reload)
+    jobs.use(ModalJobStore(job_state), ModalRunner(), data.reload, data.commit)
     # A volume only persists what has been committed, so every database write
     # is followed by one.
     db.flush = database.commit

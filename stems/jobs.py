@@ -64,17 +64,25 @@ class LocalRunner:
 
 def _no_refresh() -> None:
     """Locally the worker and the web app share a filesystem, so there is
-    nothing to refresh."""
+    nothing to refresh, and nothing to publish either."""
 
 
 # Replaced at import time by modal_app.py when running on Modal.
 store: Any = MemoryJobStore()
 runner: Any = LocalRunner()
-refresh: Callable[[], None] = _no_refresh
+refresh: Callable[[], None] = _no_refresh   # see what other containers wrote
+publish: Callable[[], None] = _no_refresh   # let them see what we wrote
 
 
-def use(new_store: Any, new_runner: Any, new_refresh: Callable[[], None] | None = None) -> None:
-    global store, runner, refresh
+def use(
+    new_store: Any,
+    new_runner: Any,
+    new_refresh: Callable[[], None] | None = None,
+    new_publish: Callable[[], None] | None = None,
+) -> None:
+    global store, runner, refresh, publish
     store, runner = new_store, new_runner
     if new_refresh is not None:
         refresh = new_refresh
+    if new_publish is not None:
+        publish = new_publish

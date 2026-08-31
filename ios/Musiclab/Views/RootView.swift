@@ -37,7 +37,7 @@ struct RootView: View {
     /// changed port, or shut down. Probe it, and if it is gone drop back to
     /// discovery so the usual local-then-cloud fallback can run.
     private func validateSavedServer() async {
-        if let saved = client.baseURL, await client.probe(saved) == false {
+        if let saved = client.baseURL, await client.probe(saved, timeout: 25) == false {
             client.baseURL = nil
         }
         // A stored session is a guess too: it may have expired or been revoked.

@@ -69,9 +69,13 @@ final class StemsClient {
     }
 
     /// Confirms a host really is a stems server before we adopt it.
-    func probe(_ url: URL) async -> Bool {
+    ///
+    /// The timeout is a parameter because the two candidates behave nothing
+    /// alike: a Mac on the same network answers immediately or not at all,
+    /// while a serverless host has to start a container first.
+    func probe(_ url: URL, timeout: TimeInterval = 3) async -> Bool {
         var request = self.request(url.appendingPathComponent("api/health"))
-        request.timeoutInterval = 3
+        request.timeoutInterval = timeout
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -262,5 +266,77 @@ extension StemsClient {
             "api/jobs/\(job)/confirm", body: ConfirmBody(video_id: videoId)
         )
         return reply.ok
+    }
+}
+
+// MARK: - Uploading audio the app fetched itself
+
+extension StemsClient {
+    /// Send downloaded audio to the server, which separates it without ever
+    /// touching YouTube.
+    func upload(
+        file: URL,
+        title: String,
+        uploader: String = "",
+        videoID: String = "",
+        pageURL: String = "",
+        format: String = "flac",
+        progress: @escaping (Double) -> Void = { _ in }
+    ) async throws -> String {
+        guard let baseURL else { throw ClientError.notConnected }
+
+        let boundary = "musiclab.\(UUID().uuidString)"
+        var request = self.request(baseURL.appendingPathComponent("api/upload"))
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)",
+                         forHTTPHeaderField: "Content-Type")
+
+        // Written to a file rather than held in memory: an hour-long upload
+        // would otherwise be an hour-long allocation.
+        let body = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(boundary).body")
+        FileManager.default.createFile(atPath: body.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: body)
+
+        func field(_ name: String, _ value: String) throws {
+            try handle.write(contentsOf: Data(
+                "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8
+            ))
+        }
+        try field("title", title)
+        try field("uploader", uploader)
+        try field("duration", "0")          // the server measures it from the audio
+        try field("url", pageURL)
+        try field("video_id", videoID)
+        try field("audio_format", format)
+
+        let filename = "audio.\(file.pathExtension.isEmpty ? "m4a" : file.pathExtension)"
+        let fileHeader = "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n"
+            + "Content-Type: application/octet-stream\r\n\r\n"
+        try handle.write(contentsOf: Data(fileHeader.utf8))
+        let source = try FileHandle(forReadingFrom: file)
+        while let chunk = try source.read(upToCount: 1 << 20), !chunk.isEmpty {
+            try handle.write(contentsOf: chunk)
+        }
+        try source.close()
+        try handle.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+        try handle.close()
+        defer { try? FileManager.default.removeItem(at: body) }
+
+        progress(0.05)
+        let (data, response) = try await URLSession.shared.upload(for: request, fromFile: body)
+        progress(1)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw ClientError.badResponse(0)
+        }
+        if http.statusCode != 200 {
+            let detail = (try? JSONDecoder().decode([String: String].self, from: data))?["detail"]
+            throw NSError(domain: "Musiclab", code: http.statusCode, userInfo: [
+                NSLocalizedDescriptionKey: detail ?? "The upload was rejected.",
+            ])
+        }
+        return "job:" + (try JSONDecoder().decode(JobReply.self, from: data)).id
     }
 }
