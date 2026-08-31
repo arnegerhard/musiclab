@@ -231,6 +231,28 @@ way to exercise that path before actually shipping:
 xcrun simctl launch <udid> info.jetsons.musiclab --args -distribution appStore
 ```
 
+### The fetch agent
+
+YouTube answers a phone or a home connection and challenges a datacenter with
+"sign in to confirm you're not a bot". Separation on a GPU is unaffected; only
+the *download* is blocked. So a deployed server does not fetch at all. It parks
+the job, and an agent on a residential connection picks it up:
+
+```bash
+.venv/bin/python -m stems.cli --agent https://your-app.modal.run --email you@example.com
+```
+
+The agent polls, so the machine running it needs no inbound reachability, no
+port forwarding and no tunnel. It does the YouTube search and the download,
+uploads the audio, and the server carries on from there. Adding songs works
+from anywhere as long as the agent is running somewhere.
+
+It sends the compressed original rather than the WAV it was expanded into --
+a few megabytes instead of tens, and the server re-decodes anyway.
+
+A local server sets nothing and downloads for itself, since it can.
+`STEMS_DELEGATE_FETCH=1` is what turns delegation on, and Modal sets it.
+
 ### Running it on a GPU instead
 
 `modal_app.py` deploys the same pipeline to Modal, where separation runs on an
@@ -257,7 +279,7 @@ Two containers, because they want different hardware:
 
 | | Hardware | Why |
 |---|---|---|
-| `web` | CPU, one container | Serves the API and owns the SQLite file |
+| `web` | CPU, one container | Serves the API, owns the SQLite file, parks jobs for the agent |
 | `worker` | A100, up to ten | One song each, so a playlist separates in parallel |
 
 That is the real speed win. A single song is bounded by the model; a

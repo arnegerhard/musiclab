@@ -5,19 +5,10 @@ options:
     iOS: "17.0"
   createIntermediateGroups: true
 
-packages:
-  # YouTube extraction in Swift. The phone does the fetching because YouTube
-  # answers a home or carrier address and challenges a datacenter one.
-  YouTubeKit:
-    url: https://github.com/alexeichhorn/YouTubeKit
-    from: 0.2.0
-
 targets:
   Musiclab:
     type: application
     platform: iOS
-    dependencies:
-      - package: YouTubeKit
     sources:
       - path: Musiclab
     entitlements:

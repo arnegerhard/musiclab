@@ -87,6 +87,31 @@ def _recompress(out_dir: Path, audio_format: str) -> int:
     return 0
 
 
+def _agent(args) -> int:
+    """Poll a deployed server for songs it needs fetched."""
+    import getpass
+    import os
+
+    from .agent import Agent, sign_in
+
+    email = args.email or input("Account email: ").strip()
+    password = os.environ.get("MUSICLAB_PASSWORD") or getpass.getpass("Password: ")
+    try:
+        token = sign_in(args.agent, email, password)
+    except Exception as exc:
+        print(f"Could not sign in: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        Agent(args.agent, token).run()
+    except KeyboardInterrupt:
+        print("\nAgent stopped.")
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
 def _accounts(args) -> int:
     """Account admin. Kept out of the server so it works with it stopped."""
     import getpass
@@ -168,6 +193,12 @@ def main(argv=None) -> int:
         help="re-encode already separated tracks into --format",
     )
     parser.add_argument(
+        "--agent",
+        metavar="SERVER_URL",
+        help="fetch audio for a deployed server that cannot reach YouTube",
+    )
+    parser.add_argument("--email", help="account to sign the agent in as")
+    parser.add_argument(
         "--serve", action="store_true", help="start the web app instead"
     )
     parser.add_argument(
@@ -197,6 +228,9 @@ def main(argv=None) -> int:
             marker = "  (default)" if key == DEFAULT_FORMAT else ""
             print(f"{key:<12}{fmt.extension:<8}{kind:<12}{fmt.note}{marker}")
         return 0
+
+    if args.agent:
+        return _agent(args)
 
     if args.add_user or args.list_users or args.claim:
         return _accounts(args)

@@ -45,6 +45,9 @@ ENVIRONMENT = {
     "STEMS_BONJOUR": "0",
     "MUSICLAB_SQLITE_JOURNAL": "DELETE",
     "MUSICLAB_DB": f"{DB_DIR}/musiclab.db",
+    # YouTube will not answer a datacenter, so fetching is delegated to an
+    # agent running where it will.
+    "STEMS_DELEGATE_FETCH": "1",
 }
 
 
@@ -121,6 +124,16 @@ class ModalJobStore:
         if job is not None:
             job.setdefault("log", []).append(message)
             self._d[f"job:{job_id}"] = job
+
+    def awaiting_fetch(self, user_id: str) -> list[str]:
+        found = []
+        for key in self._d.keys():
+            if not str(key).startswith("job:"):
+                continue
+            job = self._d.get(key)
+            if job and job.get("status") == "awaiting_fetch" and job.get("user_id") == user_id:
+                found.append(str(key)[4:])
+        return found
 
     def set_batch(self, batch_id: str, job_ids: list[str], user_id: str) -> None:
         self._d[f"batch:{batch_id}"] = {"jobs": job_ids, "user_id": user_id}

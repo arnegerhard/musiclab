@@ -19,6 +19,11 @@ from .config import DEFAULT_FORMAT, OUT_DIR
 
 SERVICE_TYPE = "_stems._tcp.local."
 
+# YouTube answers a home or carrier address and challenges a datacenter one, so
+# a deployed server cannot fetch for itself. With this set it parks the job and
+# waits for an agent on a residential connection to hand the audio over.
+DELEGATE_FETCH = os.environ.get("STEMS_DELEGATE_FETCH", "0").strip() not in ("0", "", "false", "no")
+
 app = FastAPI(title="musiclab")
 app.include_router(auth_router)
 
@@ -142,8 +147,19 @@ def _run_job(job_id: str, request: dict | JobRequest):
     request = request if isinstance(request, JobRequest) else JobRequest(**request)
     _update(job_id, status="running", phase="Starting")
     if request.uploaded_path:
-        # Nothing to find: the app already has the audio.
+        # Nothing to find: the audio is already here.
         _run_separation(job_id, request, url="")
+        return
+
+    if DELEGATE_FETCH:
+        # Both the search and the download have to happen somewhere YouTube
+        # will answer, so the whole of it goes to the agent.
+        _update(
+            job_id,
+            status="awaiting_fetch",
+            phase="Waiting for the fetch agent",
+        )
+        _append_log(job_id, "Queued for a fetch agent on a residential connection")
         return
     url = _resolve(job_id, request)
     if url is None:
@@ -232,6 +248,19 @@ def _enqueue(request: JobRequest, user: dict) -> str:
         "log": [],
         "request": request.model_dump(),
     })
+    if DELEGATE_FETCH and not request.uploaded_path:
+        # Both the search and the download have to happen somewhere YouTube
+        # will answer. Decided here rather than in the worker: dispatching a
+        # GPU container only to have it park the job would cost a cold start
+        # and an accelerator to do nothing.
+        jobs.store.update(
+            job_id, status="awaiting_fetch", phase="Waiting for the fetch agent"
+        )
+        jobs.store.append_log(
+            job_id, "Queued for a fetch agent on a residential connection"
+        )
+        return job_id
+
     jobs.runner.submit(_run_job, job_id, request.model_dump())
     return job_id
 
@@ -241,6 +270,90 @@ def find_match(track: PlaylistTrack, user: dict = Depends(current_user)):
     """Preview what a playlist track would be matched to, without separating."""
     candidates = match.search(track.title, track.artist, track.duration)
     return {"candidates": [_candidate_json(c) for c in candidates[:5]]}
+
+
+class FetchFailure(BaseModel):
+    error: str
+
+
+@app.get("/api/fetch/next")
+def next_fetch(user: dict = Depends(current_user)):
+    """Claim the oldest job waiting to be fetched, for this user only."""
+    for job_id in jobs.store.awaiting_fetch(user["id"]):
+        job = jobs.store.get(job_id)
+        if job is None or job.get("status") != "awaiting_fetch":
+            continue
+        jobs.store.update(job_id, status="fetching", phase="Fetching the audio")
+        return {
+            "job_id": job_id,
+            "url": job.get("request", {}).get("url"),
+            "track": job.get("request", {}).get("track"),
+            "audio_format": job.get("request", {}).get("audio_format", DEFAULT_FORMAT),
+        }
+    return {"job_id": None}
+
+
+@app.post("/api/fetch/{job_id}/failed")
+def fetch_failed(job_id: str, body: FetchFailure, user: dict = Depends(current_user)):
+    job = jobs.store.get(job_id)
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+    _update(job_id, status="error", phase="Failed", error=body.error)
+    return {"ok": True}
+
+
+@app.post("/api/fetch/{job_id}")
+async def deliver_fetch(
+    job_id: str,
+    audio: UploadFile = File(...),
+    title: str = Form(""),
+    uploader: str = Form(""),
+    duration: float = Form(0),
+    url: str = Form(""),
+    video_id: str = Form(""),
+    matched_from: str = Form(""),
+    user: dict = Depends(current_user),
+):
+    """The agent hands back the audio it fetched, and separation continues."""
+    job = jobs.store.get(job_id)
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+
+    destination = await _store_upload(audio, user)
+    request = JobRequest(**job["request"])
+    request.uploaded_path = str(destination)
+    request.uploaded_meta = UploadedTrack(
+        title=title, uploader=uploader, duration=duration or None,
+        url=url, video_id=video_id,
+    )
+    updates: dict = {"request": request.model_dump(), "title": title or job.get("title")}
+    if matched_from:
+        try:
+            updates["match"] = json.loads(matched_from)
+        except json.JSONDecodeError:
+            pass
+    jobs.store.update(job_id, **updates)
+
+    jobs.runner.submit(_run_separation, job_id, request.model_dump(), "")
+    return {"ok": True}
+
+
+async def _store_upload(audio: UploadFile, user: dict) -> Path:
+    incoming = user_dir(user) / ".uploads"
+    incoming.mkdir(parents=True, exist_ok=True)
+    suffix = Path(audio.filename or "audio.m4a").suffix or ".m4a"
+    destination = incoming / f"{uuid.uuid4().hex[:12]}{suffix}"
+    size = 0
+    with destination.open("wb") as handle:
+        while chunk := await audio.read(1 << 20):
+            size += len(chunk)
+            handle.write(chunk)
+    if size == 0:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(400, "the upload was empty")
+    # A worker in another container has to be able to read this.
+    jobs.publish()
+    return destination
 
 
 @app.post("/api/upload")
@@ -260,23 +373,8 @@ async def upload(
     datacenter one, so the app does the fetching and the server never talks to
     YouTube at all.
     """
-    incoming = user_dir(user) / ".uploads"
-    incoming.mkdir(parents=True, exist_ok=True)
-    suffix = Path(audio.filename or "audio.m4a").suffix or ".m4a"
-    destination = incoming / f"{uuid.uuid4().hex[:12]}{suffix}"
-
-    size = 0
-    with destination.open("wb") as handle:
-        while chunk := await audio.read(1 << 20):
-            size += len(chunk)
-            handle.write(chunk)
-    if size == 0:
-        destination.unlink(missing_ok=True)
-        raise HTTPException(400, "the upload was empty")
-
-    # The worker runs in another container and must be able to read this.
-    jobs.publish()
-
+    destination = await _store_upload(audio, user)
+    size = destination.stat().st_size
     request = JobRequest(
         uploaded_path=str(destination),
         uploaded_meta=UploadedTrack(

@@ -41,6 +41,14 @@ class MemoryJobStore:
             if job_id in self._jobs:
                 self._jobs[job_id].setdefault("log", []).append(message)
 
+    def awaiting_fetch(self, user_id: str) -> list[str]:
+        """Jobs this user has parked for an agent, oldest first."""
+        with self._lock:
+            return [
+                job_id for job_id, job in self._jobs.items()
+                if job.get("status") == "awaiting_fetch" and job.get("user_id") == user_id
+            ]
+
     def set_batch(self, batch_id: str, job_ids: list[str], user_id: str) -> None:
         with self._lock:
             self._batches[batch_id] = {"jobs": job_ids, "user_id": user_id}
