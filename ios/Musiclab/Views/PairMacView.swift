@@ -179,10 +179,17 @@ struct PairMacView: View {
         session = nil
     }
 
+    /// What the server can honestly say about a Mac from this list alone.
+    ///
+    /// It knows when the Mac last spoke to it, and nothing more. A worker
+    /// asking "any songs?" every few seconds touches that timestamp exactly
+    /// as a busy one does, so recency means the Mac is in contact -- not that
+    /// it is doing anything. Calling that "working now" contradicted the
+    /// worker's own panel sitting there saying idle.
     private func describe(_ machine: PairedMac) -> String {
         guard let seen = machine.lastSeen else { return "Never checked in" }
         let ago = Date.now.timeIntervalSince1970 - seen
-        if ago < 90 { return "Working now" }
+        if ago < 90 { return "Connected and ready" }
         let formatter = RelativeDateTimeFormatter()
         return "Last seen " + formatter.localizedString(
             for: Date(timeIntervalSince1970: seen), relativeTo: .now
