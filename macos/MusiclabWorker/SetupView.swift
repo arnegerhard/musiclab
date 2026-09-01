@@ -18,6 +18,8 @@ struct SetupView: View {
     @State private var code = ""
     @State private var error: String?
     @State private var working = false
+    /// The code already sent, so it is never spent twice.
+    @State private var attempted = ""
     @FocusState private var focused: Bool
 
     private var characters: [Character] { Array(code) }
@@ -41,10 +43,23 @@ struct SetupView: View {
 
             HStack(spacing: 10) {
                 Button {
-                    // Reading a code off a phone and typing it is the slow
-                    // path; most people will have copied it.
+                    // The code is copied on the phone, so it only reaches this
+                    // clipboard through Universal Clipboard. When that has not
+                    // happened the clipboard holds something else entirely --
+                    // and pasting it must not wipe what was already typed.
                     let pasted = NSPasteboard.general.string(forType: .string) ?? ""
-                    accept(pasted)
+                    // Measured before truncating: a pasted URL has plenty of
+                    // letters and would otherwise pass as a code, get sent,
+                    // and be rejected -- which is exactly how a paste ended up
+                    // wiping the field.
+                    let cleaned = Self.letters(pasted)
+                    if cleaned.count == Self.length {
+                        accept(cleaned)
+                    } else {
+                        error = pasted.isEmpty
+                            ? "Nothing on the clipboard. Copy the code on your phone, or type it."
+                            : "The clipboard does not hold a six-character code."
+                    }
                 } label: {
                     Label("Paste", systemImage: "doc.on.clipboard")
                 }
@@ -113,20 +128,33 @@ struct SetupView: View {
             )
     }
 
+    /// Every character a code could be made of, in order, with nothing
+    /// dropped. Truncating here would make any long string look like a code.
+    static func letters(_ text: String) -> String {
+        text.uppercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    static func clean(_ text: String) -> String {
+        String(letters(text).prefix(length))
+    }
+
     /// Accepts the code however it arrives -- typed, pasted with the dash,
     /// pasted in lower case, pasted with the whole line around it.
     private func accept(_ text: String) {
-        let cleaned = text.uppercased().filter { $0.isLetter || $0.isNumber }
-        code = String(cleaned.prefix(Self.length))
+        code = Self.clean(text)
         error = nil
-        if code.count == Self.length {
-            Task { await connect() }
-        }
+        // A code is good for exactly one claim, and this is reached from both
+        // typing and pasting. Trying the same six characters twice would spend
+        // the code on the first attempt and report the second one's failure.
+        guard code.count == Self.length, code != attempted, !working else { return }
+        attempted = code
+        Task { await connect() }
     }
 
     /// Trades the code for this machine's own token, and keeps only the token.
     private func connect() async {
         guard code.count == Self.length, !working else { return }
+        attempted = code
         working = true
         error = nil
         defer { working = false }
@@ -150,7 +178,6 @@ struct SetupView: View {
             guard http.statusCode == 200, let token = payload?["token"] as? String else {
                 error = (payload?["detail"] as? String)
                     ?? "That code was not accepted. Codes last ten minutes and work once."
-                code = ""
                 return
             }
             Keychain.write(token)
