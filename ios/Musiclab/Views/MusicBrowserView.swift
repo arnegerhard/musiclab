@@ -70,13 +70,34 @@ struct MusicBrowserView: View {
             : spotify.playlists
 
         if items.isEmpty {
-            ContentUnavailableView(
-                "Nothing here yet",
-                systemImage: "music.note.list",
-                description: Text(source == .appleMusic
-                                  ? "No \(shelf.label.lowercased()) in your library."
-                                  : "No playlists on this account.")
-            )
+            // load() returns empty both when the library really is empty and
+            // when the app was never allowed to look. Saying "nothing in your
+            // library" to somebody who has simply not granted access yet
+            // sends them looking for a problem in the wrong place.
+            if source == .appleMusic, !apple.isAuthorised {
+                ContentUnavailableView {
+                    Label("No access to your music", systemImage: "lock")
+                } description: {
+                    Text(apple.error
+                         ?? "Musiclab has not been allowed to read your music library.")
+                } actions: {
+                    Button("Allow access") { Task { await apple.requestAccess() } }
+                        .buttonStyle(.borderedProminent)
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                }
+            } else {
+                ContentUnavailableView(
+                    "Nothing here yet",
+                    systemImage: "music.note.list",
+                    description: Text(source == .appleMusic
+                                      ? "No \(shelf.label.lowercased()) in your library."
+                                      : "No playlists on this account.")
+                )
+            }
         } else {
             ForEach(items) { collection in
                 NavigationLink(value: collection) {
