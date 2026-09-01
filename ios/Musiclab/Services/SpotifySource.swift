@@ -37,6 +37,9 @@ final class SpotifySource: NSObject, ASWebAuthenticationPresentationContextProvi
     // MARK: - Authorisation
 
     func connect() async {
+        // Clear last time's complaint, or a fixed client ID still shows the
+        // failure it caused.
+        error = nil
         guard !clientID.isEmpty else {
             error = "Add your Spotify client ID first."
             return

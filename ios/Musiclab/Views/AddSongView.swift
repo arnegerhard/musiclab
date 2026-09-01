@@ -117,6 +117,20 @@ struct AddSongView: View {
             } label: {
                 Label("Connect Spotify", systemImage: "waveform")
             }
+
+            if let failure = spotify.error {
+                Text(failure)
+                    .font(.caption).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // A saved client ID used to be the end of it: the button above
+            // stopped offering the form and went straight to connecting, so a
+            // wrong ID could be entered once and never corrected.
+            if !spotify.clientID.isEmpty {
+                Button("Change client ID") { showingSpotifySetup = true }
+                    .font(.callout)
+            }
         }
     }
 
