@@ -74,6 +74,11 @@ class JobRequest(BaseModel):
     audio_format: str = DEFAULT_FORMAT
     # Low-confidence matches stop and ask rather than separating the wrong song.
     require_confident: bool = True
+    # "mac" -- a paired machine does the whole thing, free and unhurried.
+    # "cloud" -- the deployment's GPU separates, which costs money and is
+    # several times faster. A link still needs a Mac to fetch it either way,
+    # because YouTube will not answer this server.
+    destination: str = "mac"
 
 
 class BatchRequest(BaseModel):
@@ -252,16 +257,28 @@ def _enqueue(request: JobRequest, user: dict) -> str:
         "log": [],
         "request": request.model_dump(),
     })
-    if DELEGATE_FETCH and not request.uploaded_path:
+    wants_cloud = request.destination == "cloud"
+
+    # Audio that is already here needs nobody to fetch it, so the cloud can
+    # take it straight away -- the one path that works with no Mac at all.
+    if request.uploaded_path and wants_cloud:
+        jobs.runner.submit(_run_job, job_id, request.model_dump())
+        return job_id
+
+    if DELEGATE_FETCH or request.uploaded_path:
         # Both the search and the download have to happen somewhere YouTube
         # will answer. Decided here rather than in the worker: dispatching a
         # GPU container only to have it park the job would cost a cold start
         # and an accelerator to do nothing.
         jobs.store.update(
-            job_id, status="awaiting_fetch", phase="Waiting for the fetch agent"
+            job_id,
+            status="awaiting_fetch",
+            phase="Waiting for a Mac" if not wants_cloud else "Waiting for a Mac to fetch it",
         )
         jobs.store.append_log(
-            job_id, "Queued for a fetch agent on a residential connection"
+            job_id,
+            "Queued for a Mac" if not wants_cloud
+            else "Queued for a Mac to fetch, then the cloud to separate",
         )
         return job_id
 
@@ -317,10 +334,14 @@ def next_work(worker_id: str = "", user: dict = Depends(worker_user)):
         job = jobs.store.get(job_id)
         if job is None or job.get("status") != "awaiting_fetch":
             continue
+        # Asked for in the cloud: this Mac may fetch it, but the separating
+        # belongs to the GPU. A fetch agent will take it instead.
+        if job.get("request", {}).get("destination") == "cloud":
+            continue
         jobs.store.update(
             job_id,
             status="claimed",
-            phase="Separating on a worker",
+            phase="Separating on a Mac",
             worker_id=worker_id,
             claimed_at=time.time(),
         )
@@ -329,11 +350,30 @@ def next_work(worker_id: str = "", user: dict = Depends(worker_user)):
             "job_id": job_id,
             "url": request.get("url"),
             "track": request.get("track"),
+            # Set when the audio was uploaded rather than linked: there is
+            # nothing to download from the internet, only from here.
+            "source_path": (
+                f"/api/work/{job_id}/source" if request.get("uploaded_path") else None
+            ),
+            "metadata": request.get("uploaded_meta"),
             "audio_format": request.get("audio_format", DEFAULT_FORMAT),
             "split_vocals": request.get("split_vocals", True),
             "split_drums": request.get("split_drums", True),
         }
     return {"job_id": None}
+
+
+@app.get("/api/work/{job_id}/source")
+def work_source(job_id: str, user: dict = Depends(worker_user)):
+    """The audio for a job whose file was uploaded rather than linked."""
+    job = jobs.store.get(job_id)
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+    jobs.refresh()
+    uploaded = job.get("request", {}).get("uploaded_path")
+    if not uploaded or not Path(uploaded).exists():
+        raise HTTPException(404, "no uploaded audio for this job")
+    return FileResponse(uploaded)
 
 
 @app.post("/api/work/{job_id}/result")
@@ -442,6 +482,10 @@ def next_fetch(user: dict = Depends(worker_user)):
         job = jobs.store.get(job_id)
         if job is None or job.get("status") != "awaiting_fetch":
             continue
+        # A fetch agent only downloads; the GPU separates afterwards. That is
+        # what "in the cloud" asked for, so leave the rest to a full worker.
+        if job.get("request", {}).get("destination") != "cloud":
+            continue
         jobs.store.update(job_id, status="fetching", phase="Fetching the audio")
         return {
             "job_id": job_id,
@@ -524,6 +568,7 @@ async def upload(
     url: str = Form(""),
     video_id: str = Form(""),
     audio_format: str = Form(DEFAULT_FORMAT),
+    destination: str = Form("cloud"),
     user: dict = Depends(current_user),
 ):
     """Take audio the app downloaded and separate it.
@@ -532,15 +577,18 @@ async def upload(
     datacenter one, so the app does the fetching and the server never talks to
     YouTube at all.
     """
-    destination = await _store_upload(audio, user)
-    size = destination.stat().st_size
+    # Named for what it is: "destination" is already the form field saying
+    # where the separating should happen.
+    stored = await _store_upload(audio, user)
+    size = stored.stat().st_size
     request = JobRequest(
-        uploaded_path=str(destination),
+        uploaded_path=str(stored),
         uploaded_meta=UploadedTrack(
             title=title, uploader=uploader, duration=duration or None,
             url=url, video_id=video_id,
         ),
         audio_format=audio_format,
+        destination=destination,
     )
     job_id = _enqueue(request, user)
     jobs.store.update(job_id, title=title or "Uploaded audio")

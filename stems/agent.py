@@ -47,6 +47,15 @@ class Agent:
             body = response.read()
         return json.loads(body) if body else {}
 
+    def _download(self, path: str, destination: Path) -> None:
+        """Pull a file from the server, streamed, with this worker's token."""
+        request = urllib.request.Request(f"{self.base}{path}")
+        request.add_header("Authorization", f"Bearer {self.token}")
+        with urllib.request.urlopen(request, timeout=300) as response:
+            with destination.open("wb") as handle:
+                while chunk := response.read(1 << 20):
+                    handle.write(chunk)
+
     def _post_json(self, path: str, payload: dict):
         return self._request(path, json.dumps(payload).encode(), "application/json")
 
@@ -240,11 +249,23 @@ class Worker(Agent):
 
         with tempfile.TemporaryDirectory() as staging:
             out = Path(staging)
+
+            # Audio that was uploaded rather than linked: there is nothing on
+            # the internet to fetch, only the file the phone sent up.
+            uploaded = None
+            if job.get("source_path"):
+                progress("  collecting the uploaded audio")
+                self.status.working("Collecting the audio", song=title, progress=0.04)
+                uploaded = out / "source"
+                self._download(job["source_path"], uploaded)
+
             progress("  separating locally")
             self.status.working("Separating", song=title, progress=0.05)
             result = pipeline.run(
                 url,
                 out_dir=out,
+                uploaded=uploaded,
+                metadata=job.get("metadata"),
                 split_vocals=job.get("split_vocals", True),
                 split_drums=job.get("split_drums", True),
                 audio_format=job.get("audio_format", "flac"),

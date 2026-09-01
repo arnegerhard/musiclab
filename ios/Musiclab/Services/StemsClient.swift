@@ -226,16 +226,23 @@ extension StemsClient {
         )
     }
 
-    struct LinkBody: Encodable { let url: String; let audio_format: String }
+    struct LinkBody: Encodable {
+        let url: String
+        let audio_format: String
+        let destination: String
+    }
     struct JobReply: Decodable { let id: String }
 
     /// A pasted link becomes a one-song batch, so progress and match
     /// confirmation look the same however the song was chosen. The single-job
     /// endpoint returns a job rather than a batch, so it is tagged and unpacked
     /// again in `batch(id:)`.
-    func separate(link: String, format: String = "flac") async throws -> String {
+    func separate(
+        link: String, format: String = "flac", destination: String = "mac"
+    ) async throws -> String {
         let reply: JobReply = try await post(
-            "api/jobs", body: LinkBody(url: link, audio_format: format)
+            "api/jobs",
+            body: LinkBody(url: link, audio_format: format, destination: destination)
         )
         return "job:" + reply.id
     }
@@ -281,6 +288,7 @@ extension StemsClient {
         videoID: String = "",
         pageURL: String = "",
         format: String = "flac",
+        destination: String = "cloud",
         progress: @escaping (Double) -> Void = { _ in }
     ) async throws -> String {
         guard let baseURL else { throw ClientError.notConnected }
@@ -309,6 +317,7 @@ extension StemsClient {
         try field("url", pageURL)
         try field("video_id", videoID)
         try field("audio_format", format)
+        try field("destination", destination)
 
         let filename = "audio.\(file.pathExtension.isEmpty ? "m4a" : file.pathExtension)"
         let fileHeader = "--\(boundary)\r\n"
