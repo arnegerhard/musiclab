@@ -19,11 +19,12 @@ struct PairMacView: View {
     struct PairedMac: Codable, Identifiable, Equatable {
         let id: String
         let label: String?
+        let machine: String?
         let createdAt: Double
         let lastSeen: Double?
 
         enum CodingKeys: String, CodingKey {
-            case id, label
+            case id, label, machine
             case createdAt = "created_at"
             case lastSeen = "last_seen"
         }
@@ -201,6 +202,8 @@ struct PairMacView: View {
         do {
             let (data, _) = try await URLSession.shared.data(for: client.request(url))
             machines = (try? JSONDecoder().decode([PairedMac].self, from: data)) ?? []
+            // Keep the browser's idea of "still offering" honest.
+            browser.alreadyPaired = Set(machines.compactMap(\.machine))
         } catch {
             self.error = error.localizedDescription
         }

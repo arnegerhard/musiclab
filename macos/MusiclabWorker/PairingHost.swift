@@ -40,8 +40,13 @@ final class PairingHost {
         self.onPaired = onPaired
         do {
             let listener = try NWListener(using: .tcp)
+            // The machine id rides along so a phone can recognise a Mac it
+            // has already adopted, even when the network is still repeating
+            // an advertisement this Mac has withdrawn.
             listener.service = NWListener.Service(
-                name: Host.current().localizedName ?? "A Mac", type: Self.serviceType
+                name: Host.current().localizedName ?? "A Mac",
+                type: Self.serviceType,
+                txtRecord: NWTXTRecord(["machine": Self.machineID]).data
             )
             listener.newConnectionHandler = { [weak self] connection in
                 Task { @MainActor in self?.accept(connection) }

@@ -14,11 +14,30 @@ final class WorkerBrowser {
     struct Found: Identifiable, Hashable {
         let id: String
         let name: String
+        /// From the advertisement's TXT record. Empty for a Mac too old to
+        /// send one, which simply means it cannot be filtered out.
+        let machine: String
         let endpoint: NWEndpoint
     }
 
+    /// Machines already paired to this account. A Mac stops advertising the
+    /// moment it is adopted, but the network goes on repeating the withdrawn
+    /// advertisement until it expires, so a Mac that is already working would
+    /// otherwise sit in the list still offering to help.
+    var alreadyPaired: Set<String> = [] {
+        didSet { if alreadyPaired != oldValue { apply() } }
+    }
+
     private(set) var macs: [Found] = []
+    /// Everything the network is offering, before filtering.
+    private var found: [Found] = []
     private var browser: NWBrowser?
+
+    private func apply() {
+        macs = found
+            .filter { $0.machine.isEmpty || !alreadyPaired.contains($0.machine) }
+            .sorted { $0.name < $1.name }
+    }
 
     static let serviceType = "_musiclab-pair._tcp"
 
@@ -26,16 +45,25 @@ final class WorkerBrowser {
         guard browser == nil else { return }
         let parameters = NWParameters()
         parameters.includePeerToPeer = true
+        // WithTXTRecord, or the advertisement's metadata never arrives and
+        // every Mac looks anonymous -- which is the whole basis for telling
+        // an unpaired Mac from one that is already working.
         let browser = NWBrowser(
-            for: .bonjour(type: Self.serviceType, domain: nil), using: parameters
+            for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil),
+            using: parameters
         )
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in
-                self?.macs = results.compactMap { result in
+                self?.found = results.compactMap { result in
                     guard case let .service(name, _, _, _) = result.endpoint else { return nil }
-                    return Found(id: name, name: name, endpoint: result.endpoint)
+                    var machine = ""
+                    if case let .bonjour(txt) = result.metadata {
+                        machine = txt["machine"] ?? ""
+                    }
+                    return Found(id: name, name: name, machine: machine,
+                                 endpoint: result.endpoint)
                 }
-                .sorted { $0.name < $1.name }
+                self?.apply()
             }
         }
         browser.start(queue: .main)
@@ -45,6 +73,7 @@ final class WorkerBrowser {
     func stop() {
         browser?.cancel()
         browser = nil
+        found = []
         macs = []
     }
 }

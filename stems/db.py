@@ -253,7 +253,7 @@ def touch_session(token_hash: str) -> None:
 
 def sessions_with_scope(user_id: str, scope: str) -> list[dict]:
     rows = connect().execute(
-        "SELECT id, label, created_at, expires_at, last_seen FROM sessions"
+        "SELECT id, label, machine, created_at, expires_at, last_seen FROM sessions"
         " WHERE user_id = ? AND scope = ? AND expires_at > ?"
         " ORDER BY created_at DESC",
         (user_id, scope, time.time()),
