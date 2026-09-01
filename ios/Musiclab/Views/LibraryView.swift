@@ -3,10 +3,16 @@ import SwiftUI
 struct LibraryView: View {
     @Environment(StemsClient.self) private var client
     @Environment(Account.self) private var account
+    @Environment(\.scenePhase) private var scenePhase
     @State private var entries: [LibraryEntry] = []
     @State private var error: String?
     @State private var loading = true
     @State private var pairing = false
+
+    /// Songs arrive without the phone asking: a Mac finishes one minutes after
+    /// it was requested, possibly while this screen is not even on top. There
+    /// is nothing to push that news, so look again now and then.
+    private let ticker = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     var body: some View {
         List {
@@ -65,16 +71,28 @@ struct LibraryView: View {
         }
         .refreshable { await reload() }
         .task { await reload() }
+        // .task fires once for the life of the view. Coming back from the
+        // player, or from the Add tab after a song was queued, does not
+        // re-run it -- which is how a finished song stayed invisible until
+        // the app was restarted.
+        .onAppear { Task { await reload(quietly: true) } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await reload(quietly: true) } }
+        }
+        .onReceive(ticker) { _ in Task { await reload(quietly: true) } }
     }
 
-    private func reload() async {
-        loading = true
+    /// `quietly` for the automatic passes: a spinner every fifteen seconds,
+    /// and an error banner for one dropped request, would be worse than the
+    /// staleness this is fixing.
+    private func reload(quietly: Bool = false) async {
+        if !quietly { loading = true }
         defer { loading = false }
         do {
             entries = try await client.library()
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            if !quietly { self.error = error.localizedDescription }
         }
     }
 
