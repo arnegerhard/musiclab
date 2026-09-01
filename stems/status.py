@@ -40,6 +40,15 @@ class Status:
         self._state.update(fields)
         self.write()
 
+    def touch(self) -> None:
+        """Re-stamp the file without changing what it says.
+
+        A separation stage can run for many minutes without emitting an event,
+        and a reader that has heard nothing has no way to tell "still working"
+        from "died mid-song". This is the worker saying it is still here.
+        """
+        self.write()
+
     def write(self) -> None:
         self._state["updated"] = time.time()
         self.path.parent.mkdir(parents=True, exist_ok=True)

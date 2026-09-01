@@ -359,7 +359,16 @@ class Worker(Agent):
                 return
 
     def _heartbeat(self, stop: "threading.Event") -> None:
+        """Say we are still alive, to both readers.
+
+        The server needs it so the job is not handed to another machine. The
+        status file needs it just as much: the UI calls a status older than
+        ninety seconds dead, and the vocal split alone runs for minutes without
+        producing an event, so a working machine was reporting itself stopped
+        halfway through every song.
+        """
         while not stop.wait(20):
+            self.status.touch()
             try:
                 self.register(busy=True)
             except Exception:
