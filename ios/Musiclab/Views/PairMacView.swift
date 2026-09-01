@@ -15,6 +15,7 @@ struct PairMacView: View {
     @State private var machines: [PairedMac] = []
     @State private var error: String?
     @State private var working = false
+    @State private var copied = false
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -41,10 +42,22 @@ struct PairMacView: View {
                                 .font(.system(size: 34, weight: .semibold, design: .monospaced))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .center)
+                            Button {
+                                UIPasteboard.general.string = code
+                                copied = true
+                            } label: {
+                                Label(copied ? "Copied" : "Copy",
+                                      systemImage: copied ? "checkmark" : "doc.on.doc")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity, alignment: .center)
+
                             Text(secondsLeft > 0
-                                 ? "Type this into Musiclab Worker on the Mac. Expires in \(secondsLeft / 60):\(String(format: "%02d", secondsLeft % 60))."
+                                 ? "Type or paste this into Musiclab Worker on the Mac. Expires in \(secondsLeft / 60):\(String(format: "%02d", secondsLeft % 60))."
                                  : "Expired. Create another.")
                                 .font(.caption).foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity, alignment: .center)
                         }
                         .padding(.vertical, 6)
@@ -149,6 +162,7 @@ struct PairMacView: View {
                 return
             }
             code = issued
+            copied = false
             secondsLeft = Int(payload["expires_in"] as? Double ?? 600)
         } catch {
             self.error = error.localizedDescription

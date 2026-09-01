@@ -40,6 +40,10 @@ class Status:
         self._state.update(fields)
         self.write()
 
+    def snapshot(self) -> dict[str, Any]:
+        """A copy of the current state, for anyone who needs to forward it."""
+        return dict(self._state)
+
     def touch(self) -> None:
         """Re-stamp the file without changing what it says.
 

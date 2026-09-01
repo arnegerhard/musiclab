@@ -33,6 +33,7 @@ class Agent:
         self.worker_id = ""
         self.status = None
         self._song = ""
+        self._job_id = ""
         self._done = 0
 
     # MARK: transport
@@ -271,6 +272,29 @@ class Worker(Agent):
             shutil.rmtree(result.job_dir, ignore_errors=True)
         progress("  handed over")
 
+    def _report(self) -> None:
+        """Forward the local status to the server.
+
+        The Mac shows a phase and a bar; without this the phone that asked for
+        the song sees only "Separating on a worker" for the whole ten minutes.
+        Best effort -- a dropped progress ping must never fail a job.
+        """
+        if not self._job_id or self.status is None:
+            return
+        state = self.status.snapshot()
+        try:
+            self._post_json(
+                f"/api/work/{self._job_id}/progress",
+                {
+                    "phase": state.get("phase", ""),
+                    "detail": state.get("detail", ""),
+                    "progress": state.get("progress"),
+                    "worker": state.get("worker", ""),
+                },
+            )
+        except Exception:
+            pass
+
     def _note(self, event: dict, progress) -> None:
         """Turn pipeline events into something a person can read."""
         kind = event.get("kind")
@@ -299,11 +323,13 @@ class Worker(Agent):
             self.status.working(
                 "Measuring levels", song=self._song, progress=0.88
             )
+        self._report()
 
     def run(self, once: bool = False, progress=print) -> None:
         ensure_on_path()
         self.status = Status()
         self._song = ""
+        self._job_id = ""
         self._done = 0
         ensure_on_path()
 
@@ -332,6 +358,7 @@ class Worker(Agent):
                 self.register()               # heartbeat
                 time.sleep(self.poll_seconds)
                 continue
+            self._job_id = job["job_id"]
             progress(f"job {job['job_id']}")
             self._song = ""
             self.register(busy=True)
@@ -354,6 +381,7 @@ class Worker(Agent):
                 self._done += 1
             finally:
                 stop.set()
+                self._job_id = ""
                 self.status.idle(songs_done=self._done)
             if once:
                 return
@@ -369,6 +397,7 @@ class Worker(Agent):
         """
         while not stop.wait(20):
             self.status.touch()
+            self._report()
             try:
                 self.register(busy=True)
             except Exception:

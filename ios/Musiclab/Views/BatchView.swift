@@ -77,14 +77,32 @@ struct BatchView: View {
 
             Section("\(done.count) of \(jobs.count) done") {
                 ForEach(jobs) { job in
-                    HStack(spacing: 10) {
-                        icon(for: job)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(job.title ?? "Unknown").font(.callout).lineLimit(1)
-                            Text(detail(for: job))
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 10) {
+                            icon(for: job)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(job.title ?? "Unknown").font(.callout).lineLimit(1)
+                                Text(detail(for: job))
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                        // The same bar the Mac is showing. Separation runs for
+                        // minutes, and a spinner over an unmoving line of text
+                        // is indistinguishable from a machine that has died.
+                        if let fraction = job.progress, !job.isFinished, !job.isFailed {
+                            ProgressView(value: min(1, max(0, fraction)))
+                                .progressViewStyle(.linear)
+                            HStack {
+                                if let worker = job.workerName, !worker.isEmpty {
+                                    Label(worker, systemImage: "desktopcomputer")
+                                }
+                                Spacer()
+                                Text("\(Int(fraction * 100))%").monospacedDigit()
+                            }
+                            .font(.caption2).foregroundStyle(.tertiary)
                         }
                     }
+                    .padding(.vertical, 2)
                 }
             }
         }
@@ -113,6 +131,7 @@ struct BatchView: View {
     private func detail(for job: JobStatus) -> String {
         if job.isFailed { return job.error ?? "Failed" }
         if job.isFinished, let match = job.match { return "Matched \(match.channel)" }
+        if let step = job.detail, !step.isEmpty { return "\(job.phase) — \(step)" }
         return job.phase
     }
 

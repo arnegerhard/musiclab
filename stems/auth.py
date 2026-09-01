@@ -99,6 +99,9 @@ def touch(token: str) -> None:
 # MARK: pairing a worker
 
 PAIR_TTL_SECONDS = 10 * 60
+# Six characters, typed into six boxes. From a 32-letter alphabet that is a
+# billion codes, each good for ten minutes and one machine.
+PAIR_LENGTH = 6
 # No 0/O or 1/I: this gets read off a phone and typed into a Mac.
 _PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -109,8 +112,8 @@ def start_pairing(user_id: str) -> tuple[str, float]:
     The code is stored only as a hash, like every other credential here, and
     is good for one machine -- claiming it deletes it.
     """
-    raw = "".join(secrets.choice(_PAIR_ALPHABET) for _ in range(8))
-    code = f"{raw[:4]}-{raw[4:]}"
+    raw = "".join(secrets.choice(_PAIR_ALPHABET) for _ in range(PAIR_LENGTH))
+    code = f"{raw[:3]}-{raw[3:]}"
     db.create_pair_code(user_id, _token_hash(normalise_pair_code(code)), PAIR_TTL_SECONDS)
     return code, PAIR_TTL_SECONDS
 

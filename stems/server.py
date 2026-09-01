@@ -394,6 +394,32 @@ async def deliver_work(
     return {"ok": True}
 
 
+class WorkProgress(BaseModel):
+    """What the machine doing the separation is up to, in its own words."""
+    phase: str = ""
+    detail: str = ""
+    progress: float | None = None
+    worker: str = ""
+
+
+@app.post("/api/work/{job_id}/progress")
+def work_progress(job_id: str, body: WorkProgress, user: dict = Depends(worker_user)):
+    """The worker shows a phase and a bar locally; this is how the phone gets
+    to show the same thing rather than an unmoving "Separating"."""
+    job = jobs.store.get(job_id)
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+    _update(
+        job_id,
+        phase=body.phase or job.get("phase", ""),
+        detail=body.detail,
+        progress=body.progress,
+        worker_name=body.worker,
+    )
+    jobs.publish()
+    return {"ok": True}
+
+
 @app.post("/api/work/{job_id}/failed")
 def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_user)):
     """Hand the job back rather than failing it: another worker may manage."""
