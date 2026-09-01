@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Hand a Mac permission to do separation work for this account.
 ///
@@ -43,7 +44,7 @@ struct PairMacView: View {
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .center)
                             Button {
-                                UIPasteboard.general.string = code
+                                copyToClipboard(code)
                                 copied = true
                             } label: {
                                 Label(copied ? "Copied" : "Copy",
@@ -121,6 +122,22 @@ struct PairMacView: View {
         let formatter = RelativeDateTimeFormatter()
         return "Last seen " + formatter.localizedString(
             for: Date(timeIntervalSince1970: seen), relativeTo: .now
+        )
+    }
+
+    /// Put the code on the clipboard in a way that can reach the Mac.
+    ///
+    /// Plain `.string =` is eligible for Universal Clipboard already, but says
+    /// nothing about intent; setting localOnly explicitly does. The expiry
+    /// matches the code's own ten minutes -- a spent code left sitting on
+    /// every signed-in device is worth nothing to anyone.
+    private func copyToClipboard(_ text: String) {
+        UIPasteboard.general.setItems(
+            [[UTType.utf8PlainText.identifier: text]],
+            options: [
+                .localOnly: false,
+                .expirationDate: Date().addingTimeInterval(TimeInterval(max(60, secondsLeft))),
+            ]
         )
     }
 
