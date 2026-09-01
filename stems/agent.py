@@ -366,6 +366,21 @@ class Worker(Agent):
                 pass
 
 
+def pair(base_url: str, code: str, label: str) -> str:
+    """Trade a pairing code from the app for this machine's own token.
+
+    The token that comes back may claim work and hand it back, and nothing
+    else -- it cannot read the library or touch the account.
+    """
+    payload = json.dumps({"code": code, "label": label}).encode()
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}/api/auth/pair/claim", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)["token"]
+
+
 def sign_in(base_url: str, email: str, password: str) -> str:
     payload = json.dumps({"email": email, "password": password}).encode()
     request = urllib.request.Request(

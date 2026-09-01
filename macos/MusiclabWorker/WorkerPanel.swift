@@ -91,9 +91,9 @@ struct WorkerPanel: View {
 
     private var notSetUp: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("This Mac is not signed in yet.")
+            Text("This Mac is not paired yet.")
                 .font(.callout).foregroundStyle(.secondary)
-            Button("Set up…") { openSetup() }
+            Button("Pair…") { openSetup() }
                 .buttonStyle(.borderedProminent)
         }
     }
@@ -128,7 +128,7 @@ struct WorkerPanel: View {
         openWindow(id: "setup")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             NSApplication.shared.windows
-                .first { $0.title == "Sign in to Musiclab" }?
+                .first { $0.title == "Pair this Mac" }?
                 .makeKeyAndOrderFront(nil)
         }
     }

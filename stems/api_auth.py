@@ -48,13 +48,42 @@ def _session_response(user: dict) -> dict:
     return {"token": auth.issue_session(user["id"]), "user": _public(user)}
 
 
-def current_user(authorization: str | None = Header(default=None)) -> dict:
-    """Every protected route depends on this."""
+def _bearer(authorization: str | None) -> str:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "Sign in to continue.")
-    user = auth.user_for_token(authorization.split(" ", 1)[1].strip())
+    return authorization.split(" ", 1)[1].strip()
+
+
+def _authenticate(authorization: str | None) -> tuple[dict, str]:
+    token = _bearer(authorization)
+    user = auth.user_for_token(token)
     if user is None:
         raise HTTPException(401, "Your session has expired. Sign in again.")
+    return user, token
+
+
+def current_user(authorization: str | None = Header(default=None)) -> dict:
+    """Every route that acts on someone's account depends on this.
+
+    A worker token is deliberately refused here. A Mac doing separation work
+    has no business reading the library, changing the password, or minting
+    more tokens -- that is the whole point of giving it its own credential
+    rather than a copy of the owner's sign-in.
+    """
+    user, _ = _authenticate(authorization)
+    if user.get("token_scope") == "worker":
+        raise HTTPException(403, "This token may only run separation work.")
+    return user
+
+
+def worker_user(authorization: str | None = Header(default=None)) -> dict:
+    """For the endpoints a helper machine needs: claim work, hand it back.
+
+    A full sign-in is accepted too, so `--worker` still runs from a checkout
+    without pairing first.
+    """
+    user, token = _authenticate(authorization)
+    auth.touch(token)
     return user
 
 
@@ -138,6 +167,41 @@ def confirm_reset(body: ResetConfirm):
     except auth.AuthError as exc:
         raise HTTPException(400, str(exc)) from exc
     return _session_response(user)
+
+
+class PairClaim(BaseModel):
+    code: str
+    label: str = ""
+
+
+@router.post("/pair")
+def start_pair(user: dict = Depends(current_user)):
+    """Mint a pairing code. Shown in the app, typed into a worker."""
+    code, ttl = auth.start_pairing(user["id"])
+    return {"code": code, "expires_in": ttl}
+
+
+@router.post("/pair/claim")
+def claim_pair(body: PairClaim):
+    """Unauthenticated on purpose: holding the code is the credential."""
+    try:
+        token = auth.complete_pairing(body.code, body.label)
+    except auth.AuthError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"token": token}
+
+
+@router.get("/pairings")
+def list_pairings(user: dict = Depends(current_user)):
+    """The Macs paired to this account, newest first."""
+    return db.sessions_with_scope(user["id"], "worker")
+
+
+@router.delete("/pairings/{session_id}")
+def revoke_pairing(session_id: str, user: dict = Depends(current_user)):
+    if not db.delete_session_by_id(user["id"], session_id):
+        raise HTTPException(404, "No such paired machine.")
+    return {"ok": True}
 
 
 @router.get("/me")

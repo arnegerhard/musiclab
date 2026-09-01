@@ -33,7 +33,11 @@ final class WorkerProcess {
 
     struct Configuration: Codable {
         let server: String
-        let email: String
+        /// What this Mac calls itself in the owner's app.
+        var label: String?
+        /// Only written by builds that signed in with an email. Kept so an
+        /// existing worker.json still decodes after the move to pairing.
+        var email: String?
     }
 
     static func loadConfiguration() -> Configuration? {

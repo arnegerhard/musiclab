@@ -74,11 +74,13 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def issue_session(user_id: str) -> str:
+def issue_session(
+    user_id: str, scope: str = "full", label: str | None = None
+) -> str:
     """Return the bearer token. Only its hash is stored, so a stolen database
     does not hand over live sessions."""
     token = secrets.token_urlsafe(32)
-    db.create_session(user_id, _token_hash(token))
+    db.create_session(user_id, _token_hash(token), scope=scope, label=label)
     return token
 
 
@@ -88,6 +90,46 @@ def user_for_token(token: str) -> dict | None:
 
 def revoke(token: str) -> None:
     db.delete_session(_token_hash(token))
+
+
+def touch(token: str) -> None:
+    db.touch_session(_token_hash(token))
+
+
+# MARK: pairing a worker
+
+PAIR_TTL_SECONDS = 10 * 60
+# No 0/O or 1/I: this gets read off a phone and typed into a Mac.
+_PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def start_pairing(user_id: str) -> tuple[str, float]:
+    """Mint a short code that a worker can trade for its own token.
+
+    The code is stored only as a hash, like every other credential here, and
+    is good for one machine -- claiming it deletes it.
+    """
+    raw = "".join(secrets.choice(_PAIR_ALPHABET) for _ in range(8))
+    code = f"{raw[:4]}-{raw[4:]}"
+    db.create_pair_code(user_id, _token_hash(normalise_pair_code(code)), PAIR_TTL_SECONDS)
+    return code, PAIR_TTL_SECONDS
+
+
+def normalise_pair_code(code: str) -> str:
+    """Accept it typed with or without the dash, in any case."""
+    return (code or "").strip().upper().replace("-", "").replace(" ", "")
+
+
+def complete_pairing(code: str, label: str) -> str:
+    """Trade a code for a worker-scoped token. Raises if it is wrong, already
+    used, or older than PAIR_TTL_SECONDS."""
+    cleaned = normalise_pair_code(code)
+    if not cleaned:
+        raise AuthError("Enter the pairing code from the app.")
+    row = db.take_pair_code(_token_hash(cleaned))
+    if row is None:
+        raise AuthError("That code is not valid or has expired.")
+    return issue_session(row["user_id"], scope="worker", label=label.strip() or "A Mac")
 
 
 # MARK: Sign in with Apple

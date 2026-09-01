@@ -19,6 +19,7 @@
 		560B30F7A353BB061D041334 /* Track.swift in Sources */ = {isa = PBXBuildFile; fileRef = 973D5496CD7FBBE5AF17E2E7 /* Track.swift */; };
 		5D13039E9FC27449539C64F1 /* AppleMusicSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5DFDCDDF9969AA01EB9347C /* AppleMusicSource.swift */; };
 		763D29BCC08E3C30931E0F63 /* MusicBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4995007FDC85DBCC41CEAAF4 /* MusicBrowserView.swift */; };
+		8101ECECC868D927C94C10EF /* PairMacView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4E4844314F8248E8616DC37 /* PairMacView.swift */; };
 		80904057D911E98008B285A4 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD45343DD8B0761ED7722E03 /* LibraryView.swift */; };
 		86BF5A57AF6C44770D38EFBF /* ServerDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */; };
 		8E4980CB05DB5EEC7A5DCDD1 /* SpotifySetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A2DBBADB33369533C09AAF /* SpotifySetupView.swift */; };
@@ -56,6 +57,7 @@
 		9EC35CB98EFFFE230CE5566F /* Musiclab.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Musiclab.entitlements; sourceTree = "<group>"; };
 		A5DFDCDDF9969AA01EB9347C /* AppleMusicSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicSource.swift; sourceTree = "<group>"; };
 		AC3EACB9D2622CCAF222DCD3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		E4E4844314F8248E8616DC37 /* PairMacView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairMacView.swift; sourceTree = "<group>"; };
 		AD45343DD8B0761ED7722E03 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		AE2063FBA09D59E106EE30AE /* MusiclabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusiclabApp.swift; sourceTree = "<group>"; };
 		B126CE9454BA2DA151142C62 /* BatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchView.swift; sourceTree = "<group>"; };
@@ -74,6 +76,7 @@
 				6D2CF87C1DFA10DC1B9AF970 /* AddSongView.swift */,
 				762548A90BFE8628DB71EA54 /* ArtworkView.swift */,
 				B126CE9454BA2DA151142C62 /* BatchView.swift */,
+				E4E4844314F8248E8616DC37 /* PairMacView.swift */,
 				AD45343DD8B0761ED7722E03 /* LibraryView.swift */,
 				4995007FDC85DBCC41CEAAF4 /* MusicBrowserView.swift */,
 				37BCC1ED2296C748F2BFE531 /* PlayerView.swift */,
@@ -224,6 +227,7 @@
 				45C446C240B0892DD8AB584A /* AudioRoute.swift in Sources */,
 				BFC1E5A7C6946032E2F6F804 /* RoutePicker.swift in Sources */,
 				BEF098C2E1EA1DC5DA961022 /* HeadTracker.swift in Sources */,
+				8101ECECC868D927C94C10EF /* PairMacView.swift in Sources */,
 				80904057D911E98008B285A4 /* LibraryView.swift in Sources */,
 				763D29BCC08E3C30931E0F63 /* MusicBrowserView.swift in Sources */,
 				2785C2A4C2C9A68D14C9E79B /* MusiclabApp.swift in Sources */,

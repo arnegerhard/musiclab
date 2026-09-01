@@ -163,6 +163,25 @@ Or just create the account from the app's sign-in screen.
 - **Sessions** are random bearer tokens; only their SHA-256 is stored, so a
   copy of the database does not hand over live sessions. The app keeps its
   token in the keychain.
+- **Worker tokens** are sessions with `scope = worker`. They may claim work,
+  return it, and report a failure. They are refused everywhere else, so a Mac
+  doing separation cannot read the library or touch the account.
+
+### Pairing a Mac
+
+A helper machine never signs in. The app mints a single-use code
+(`POST /api/auth/pair`, eight characters, ten minutes) which the worker trades
+for its own token (`POST /api/auth/pair/claim`). Claiming deletes the code.
+
+This exists because a worker holding the owner's sign-in was wrong twice over.
+It gave a machine doing CPU work the run of the account, which matters as soon
+as the swarm is more than one Mac. And it locked out Sign in with Apple
+entirely: those accounts have no password, `/api/auth/login` needs one, so
+there was no way for such an account to run a worker at all.
+
+`GET /api/auth/pairings` lists the paired machines and when each last checked
+in; `DELETE /api/auth/pairings/{id}` revokes one without disturbing the
+others.
 
 ### Password reset
 
@@ -239,7 +258,7 @@ the *download* is blocked. So a deployed server does not fetch at all. It parks
 the job, and an agent on a residential connection picks it up:
 
 ```bash
-.venv/bin/python -m stems.cli --agent https://your-app.modal.run --email you@example.com
+.venv/bin/python -m stems.cli --agent https://your-app.modal.run --pair XXXX-XXXX
 ```
 
 The agent polls, so the machine running it needs no inbound reachability, no
@@ -259,7 +278,7 @@ A fetch agent gets past YouTube and leaves the separation to the deployment's
 GPU. A **worker** keeps the whole job on its own Mac:
 
 ```bash
-.venv/bin/python -m stems.cli --worker https://your-app.modal.run --email you@example.com
+.venv/bin/python -m stems.cli --worker https://your-app.modal.run --pair XXXX-XXXX
 ```
 
 Both draw from the same queue, so whichever claims first decides where the
@@ -291,9 +310,10 @@ progress bar. The first run shows the same bar for the ~1.3 GB of models,
 which are fetched up front so a new worker says what it is waiting for rather
 than appearing to hang on its first song.
 
-It asks for a server and an account once, exchanges the password for a token
-kept in the login keychain, and keeps the worker running, restarting it if the
-machine sleeps or the network goes away.
+It asks for a server and a pairing code once, trades the code for this
+machine's own token kept in the login keychain, and keeps the worker running,
+restarting it if the machine sleeps or the network goes away. The account's
+password never reaches it.
 
 The Swift app and the Python worker talk through a status file rather than a
 socket, because either can restart without the other, and a file is still

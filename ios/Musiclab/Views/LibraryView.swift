@@ -6,6 +6,7 @@ struct LibraryView: View {
     @State private var entries: [LibraryEntry] = []
     @State private var error: String?
     @State private var loading = true
+    @State private var pairing = false
 
     var body: some View {
         List {
@@ -29,12 +30,16 @@ struct LibraryView: View {
                 }
             }
         }
+        .sheet(isPresented: $pairing) { PairMacView() }
         .navigationTitle("Library")
         .navigationDestination(for: LibraryEntry.self) { PlayerView(entry: $0) }
         .toolbar {
             Menu {
                 if let email = account.user?.email {
                     Text(email)
+                }
+                Button("Pair a Mac", systemImage: "desktopcomputer") {
+                    pairing = true
                 }
                 Button("Sign out", systemImage: "person.crop.circle.badge.xmark") {
                     Task { await account.signOut() }

@@ -92,16 +92,31 @@ def _agent(args) -> int:
     import getpass
     import os
 
-    from .agent import Agent, Worker, sign_in
+    import socket
+
+    from .agent import Agent, Worker, pair, sign_in
 
     url = args.worker or args.agent
-    email = args.email or input("Account email: ").strip()
-    password = os.environ.get("MUSICLAB_PASSWORD") or getpass.getpass("Password: ")
-    try:
-        token = sign_in(url, email, password)
-    except Exception as exc:
-        print(f"Could not sign in: {exc}", file=sys.stderr)
-        return 1
+
+    # Three ways in, cheapest first: a token we were handed, a pairing code
+    # from the app, or a full sign-in.
+    token = os.environ.get("MUSICLAB_TOKEN", "").strip()
+    if not token and args.pair:
+        label = args.label or socket.gethostname().split(".")[0]
+        try:
+            token = pair(url, args.pair, label)
+        except Exception as exc:
+            print(f"Could not pair: {exc}", file=sys.stderr)
+            return 1
+        print(f"Paired as {label!r}. Token:\n{token}")
+    if not token:
+        email = args.email or input("Account email: ").strip()
+        password = os.environ.get("MUSICLAB_PASSWORD") or getpass.getpass("Password: ")
+        try:
+            token = sign_in(url, email, password)
+        except Exception as exc:
+            print(f"Could not sign in: {exc}", file=sys.stderr)
+            return 1
 
     helper = Worker(url, token) if args.worker else Agent(url, token)
     try:
@@ -213,6 +228,15 @@ def main(argv=None) -> int:
         help="join the swarm: fetch and separate on this Mac, keeping nothing",
     )
     parser.add_argument("--email", help="account to sign the agent in as")
+    parser.add_argument(
+        "--pair",
+        metavar="CODE",
+        help="pairing code from the app's settings; trades it for this "
+             "machine's own token, which can only run separation work",
+    )
+    parser.add_argument(
+        "--label", help="name for this machine in the app (default: its hostname)"
+    )
     parser.add_argument(
         "--serve", action="store_true", help="start the web app instead"
     )

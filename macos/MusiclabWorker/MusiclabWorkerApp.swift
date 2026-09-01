@@ -18,7 +18,7 @@ struct MusiclabWorkerApp: App {
         // A real window rather than a sheet over the popover. Text fields in a
         // MenuBarExtra window do not reliably take keyboard focus, which makes
         // a form there impossible to fill in.
-        Window("Sign in to Musiclab", id: "setup") {
+        Window("Pair this Mac", id: "setup") {
             SetupView { worker.start() }
         }
         .windowResizability(.contentSize)

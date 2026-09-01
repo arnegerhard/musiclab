@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import jobs, match, pipeline
-from .api_auth import current_user
+from .api_auth import current_user, worker_user
 from .api_auth import router as auth_router
 from .config import DEFAULT_FORMAT, OUT_DIR
 
@@ -292,7 +292,7 @@ class WorkerInfo(BaseModel):
 
 
 @app.post("/api/workers/register")
-def register_worker(info: WorkerInfo, user: dict = Depends(current_user)):
+def register_worker(info: WorkerInfo, user: dict = Depends(worker_user)):
     """Announce a machine that can separate. Registration is a heartbeat, not
     a reservation: a worker that stops calling simply stops being offered work."""
     worker_id = jobs.store.register_worker(user["id"], info.model_dump())
@@ -305,7 +305,7 @@ def list_workers(user: dict = Depends(current_user)):
 
 
 @app.get("/api/work/next")
-def next_work(worker_id: str = "", user: dict = Depends(current_user)):
+def next_work(worker_id: str = "", user: dict = Depends(worker_user)):
     """Claim a whole job: fetch it, separate it, send the stems back.
 
     The same queue the fetch-only agent draws from. Whichever kind of helper
@@ -340,7 +340,7 @@ async def deliver_work(
     job_id: str,
     archive: UploadFile = File(...),
     slug: str = Form(...),
-    user: dict = Depends(current_user),
+    user: dict = Depends(worker_user),
 ):
     """Unpack a finished song a worker separated on its own hardware."""
     job = jobs.store.get(job_id)
@@ -395,7 +395,7 @@ async def deliver_work(
 
 
 @app.post("/api/work/{job_id}/failed")
-def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(current_user)):
+def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_user)):
     """Hand the job back rather than failing it: another worker may manage."""
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
@@ -409,7 +409,7 @@ def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(current_us
 
 
 @app.get("/api/fetch/next")
-def next_fetch(user: dict = Depends(current_user)):
+def next_fetch(user: dict = Depends(worker_user)):
     """Claim the oldest job waiting to be fetched, for this user only."""
     for job_id in jobs.store.awaiting_fetch(user["id"]):
         job = jobs.store.get(job_id)
@@ -426,7 +426,7 @@ def next_fetch(user: dict = Depends(current_user)):
 
 
 @app.post("/api/fetch/{job_id}/failed")
-def fetch_failed(job_id: str, body: FetchFailure, user: dict = Depends(current_user)):
+def fetch_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_user)):
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
@@ -444,7 +444,7 @@ async def deliver_fetch(
     url: str = Form(""),
     video_id: str = Form(""),
     matched_from: str = Form(""),
-    user: dict = Depends(current_user),
+    user: dict = Depends(worker_user),
 ):
     """The agent hands back the audio it fetched, and separation continues."""
     job = jobs.store.get(job_id)
