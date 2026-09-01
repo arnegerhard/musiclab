@@ -38,9 +38,10 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_stems._tcp</string>
+		<string>_musiclab-pair._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Musiclab looks for your Mac on the local network to load separated tracks.</string>
+	<string>Musiclab finds your Mac on this network, both to load separated tracks and to pair a Mac that offers to do the separating.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Musiclab follows the movement of your head so the musicians stay where you placed them in the room as you turn.</string>
 	<key>UIBackgroundModes</key>

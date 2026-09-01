@@ -4,8 +4,8 @@ import SwiftUI
 struct WorkerPanel: View {
     @Bindable var reader: StatusReader
     @Bindable var worker: WorkerProcess
+    @Bindable var pairing: PairingHost
 
-    @Environment(\.openWindow) private var openWindow
 
     private var status: WorkerStatus { reader.status }
 
@@ -13,7 +13,9 @@ struct WorkerPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             header
 
-            if !WorkerProcess.isPackaged {
+            if let asking = pairing.request {
+                consent(to: asking)
+            } else if !WorkerProcess.isPackaged {
                 noEngine
             } else if !worker.isPaired {
                 notSetUp
@@ -32,12 +34,7 @@ struct WorkerPanel: View {
         }
         .padding(16)
         .frame(width: 320)
-        .task {
-            reader.start()
-            if WorkerProcess.isPackaged, worker.isPaired {
-                worker.start()
-            }
-        }
+
     }
 
     // MARK: - Pieces
@@ -118,8 +115,46 @@ struct WorkerPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("This Mac is not paired yet.")
                 .font(.callout).foregroundStyle(.secondary)
-            Button("Pair…") { openSetup() }
-                .buttonStyle(.borderedProminent)
+            Text(pairing.isAdvertising
+                 ? "Open Musiclab on your phone, on this network, and it will "
+                   + "offer to pair. You will be asked here too."
+                 : "Waiting for the local network…")
+                .font(.caption).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let failure = pairing.lastError {
+                Text(failure).font(.caption).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Half of the agreement. The phone is showing the same six digits and
+    /// waiting for its own answer; neither side proceeds alone.
+    private func consent(to request: PairingHost.Request) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("\(request.device) wants to pair")
+                .font(.callout).fontWeight(.medium)
+            Text(request.verification)
+                .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                .frame(maxWidth: .infinity)
+            Text("Allow only if your phone is showing these same six digits.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Don't allow") { pairing.answer(false) }
+                Spacer()
+                Button("Allow") { pairing.answer(true) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    /// Only an unpaired Mac announces itself, and it stops the moment it is
+    /// spoken for.
+    private func offerThisMac() {
+        pairing.start {
+            worker.adoptPairing()
+            pairing.stop()
         }
     }
 
@@ -129,7 +164,10 @@ struct WorkerPanel: View {
                 Button(worker.isRunning ? "Pause" : "Resume") {
                     worker.isRunning ? worker.stop() : worker.start()
                 }
-                Button("Sign out") { worker.signOut() }
+                Button("Sign out") {
+                    worker.signOut()
+                    offerThisMac()
+                }
             }
             Spacer()
             Button("Quit") {
@@ -138,20 +176,6 @@ struct WorkerPanel: View {
             }
         }
         .font(.callout)
-    }
-
-    private func openSetup() {
-        // A menu bar app runs as an accessory, which cannot become the active
-        // app and so cannot reliably front a window or give a text field the
-        // keyboard. It becomes a regular app for as long as the window is up.
-        NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        openWindow(id: "setup")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            NSApplication.shared.windows
-                .first { $0.title == "Pair this Mac" }?
-                .makeKeyAndOrderFront(nil)
-        }
     }
 
     // MARK: - Presentation

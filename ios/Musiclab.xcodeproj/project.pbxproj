@@ -21,6 +21,7 @@
 		763D29BCC08E3C30931E0F63 /* MusicBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4995007FDC85DBCC41CEAAF4 /* MusicBrowserView.swift */; };
 		8101ECECC868D927C94C10EF /* PairMacView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4E4844314F8248E8616DC37 /* PairMacView.swift */; };
 		80904057D911E98008B285A4 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD45343DD8B0761ED7722E03 /* LibraryView.swift */; };
+		0153613C938AAF157E86BB3E /* WorkerPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */; };
 		86BF5A57AF6C44770D38EFBF /* ServerDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */; };
 		8E4980CB05DB5EEC7A5DCDD1 /* SpotifySetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A2DBBADB33369533C09AAF /* SpotifySetupView.swift */; };
 		45C446C240B0892DD8AB584A /* AudioRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDC02A9400EABF8EFC360EB /* AudioRoute.swift */; };
@@ -43,6 +44,7 @@
 		40808A51AF81B1E6C1BBBDD2 /* SpotifySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifySource.swift; sourceTree = "<group>"; };
 		4995007FDC85DBCC41CEAAF4 /* MusicBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicBrowserView.swift; sourceTree = "<group>"; };
 		4F0B0C3F5EC5C16C9B2B6897 /* ServerEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerEndpoint.swift; sourceTree = "<group>"; };
+		07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkerPairing.swift; sourceTree = "<group>"; };
 		5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerDiscovery.swift; sourceTree = "<group>"; };
 		6D2CF87C1DFA10DC1B9AF970 /* AddSongView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSongView.swift; sourceTree = "<group>"; };
 		708B897FF50064B8780F64EF /* PlaylistModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistModels.swift; sourceTree = "<group>"; };
@@ -113,6 +115,7 @@
 			children = (
 				2E5F775423E254D5B94FC635 /* Account.swift */,
 				A5DFDCDDF9969AA01EB9347C /* AppleMusicSource.swift */,
+				07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */,
 				5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */,
 				4F0B0C3F5EC5C16C9B2B6897 /* ServerEndpoint.swift */,
 				40808A51AF81B1E6C1BBBDD2 /* SpotifySource.swift */,
@@ -234,6 +237,7 @@
 				3575EFC610BC860DDCC08E71 /* PlayerView.swift in Sources */,
 				C024514408F4CE3C9C76989E /* PlaylistModels.swift in Sources */,
 				2C708A27448DF2815DFA87F3 /* RootView.swift in Sources */,
+				0153613C938AAF157E86BB3E /* WorkerPairing.swift in Sources */,
 				86BF5A57AF6C44770D38EFBF /* ServerDiscovery.swift in Sources */,
 				F6E3D8DA6FFEFD45F67E8945 /* ServerEndpoint.swift in Sources */,
 				ED7084CE388B0C0A5FEC7C52 /* SignInView.swift in Sources */,

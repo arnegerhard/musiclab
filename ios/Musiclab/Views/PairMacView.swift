@@ -1,24 +1,20 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
-/// Hand a Mac permission to do separation work for this account.
+/// Adopt a Mac on this network so it can do separation work for this account.
 ///
-/// The Mac never learns the password -- it trades this code for a credential
-/// that may claim work and return it and nothing else. That also means an
-/// account created with Sign in with Apple, which has no password to give,
-/// can still put a Mac to work.
+/// Both ends have to agree: this screen finds Macs that are offering
+/// themselves, and the Mac asks its own person before accepting. The six
+/// digits shown on both are how you know the two are talking to each other.
 struct PairMacView: View {
     @Environment(StemsClient.self) private var client
     @Environment(\.dismiss) private var dismiss
 
-    @State private var code: String?
-    @State private var secondsLeft = 0
+    @State private var browser = WorkerBrowser()
+    @State private var session: PairingSession?
     @State private var machines: [PairedMac] = []
     @State private var error: String?
-    @State private var working = false
-    @State private var copied = false
 
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    private let ticker = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     struct PairedMac: Codable, Identifiable, Equatable {
         let id: String
@@ -36,43 +32,32 @@ struct PairMacView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    if let code {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(code)
-                                .font(.system(size: 34, weight: .semibold, design: .monospaced))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                            Button {
-                                copyToClipboard(code)
-                                copied = true
-                            } label: {
-                                Label(copied ? "Copied" : "Copy",
-                                      systemImage: copied ? "checkmark" : "doc.on.doc")
-                                    .font(.caption)
+                if let session {
+                    Section("Pairing with \(session.macName)") {
+                        pairing(session)
+                    }
+                } else {
+                    Section {
+                        if browser.macs.isEmpty {
+                            HStack(spacing: 10) {
+                                ProgressView().controlSize(.small)
+                                Text("Looking for Macs…").foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity, alignment: .center)
-
-                            Text(secondsLeft > 0
-                                 ? "Type or paste this into Musiclab Worker on the Mac. Expires in \(secondsLeft / 60):\(String(format: "%02d", secondsLeft % 60))."
-                                 : "Expired. Create another.")
-                                .font(.caption).foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity, alignment: .center)
                         }
-                        .padding(.vertical, 6)
+                        ForEach(browser.macs) { mac in
+                            Button {
+                                start(with: mac)
+                            } label: {
+                                Label(mac.name, systemImage: "desktopcomputer")
+                            }
+                        }
+                    } header: {
+                        Text("Macs offering to help")
+                    } footer: {
+                        Text("Open Musiclab Worker on a Mac on this network. "
+                             + "A Mac only appears here while it is unpaired, "
+                             + "and it will ask before it accepts.")
                     }
-                    Button(code == nil ? "Create a code" : "Create another code") {
-                        Task { await mint() }
-                    }
-                    .disabled(working)
-                } header: {
-                    Text("Pair a Mac")
-                } footer: {
-                    Text("Open Musiclab Worker on the Mac, choose Pair, and type "
-                         + "the code. Each code works once. The Mac never "
-                         + "receives your password.")
                 }
 
                 Section("Paired Macs") {
@@ -95,24 +80,95 @@ struct PairMacView: View {
                     Text(error).foregroundStyle(.red).font(.callout)
                 }
             }
-            .refreshable { await load() }
             .navigationTitle("Macs")
             .navigationBarTitleDisplayMode(.inline)
+            .refreshable { await load() }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
         }
-        .task { await load() }
-        .onReceive(ticker) { _ in
-            guard secondsLeft > 0 else { return }
-            secondsLeft -= 1
-            // While a code is outstanding the Mac may pair at any moment, and
-            // nothing pushes that back to the phone. Poll only during the
-            // window when something is actually expected to happen.
-            if secondsLeft % 3 == 0 { Task { await load() } }
+        .task {
+            browser.start()
+            await load()
         }
+        .onDisappear {
+            session?.cancel()
+            browser.stop()
+        }
+        .onReceive(ticker) { _ in Task { await load() } }
+    }
+
+    @ViewBuilder
+    private func pairing(_ session: PairingSession) -> some View {
+        switch session.step {
+        case .connecting:
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Connecting…").foregroundStyle(.secondary)
+            }
+        case let .confirm(number):
+            VStack(spacing: 10) {
+                Text(number)
+                    .font(.system(size: 34, weight: .semibold, design: .monospaced))
+                Text("Pair only if \(session.macName) is showing these same six digits.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                HStack {
+                    Button("Cancel", role: .cancel) { stop() }
+                    Spacer()
+                    Button("Pair") { session.confirm() }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+        case let .waitingForMac(number):
+            VStack(spacing: 8) {
+                Text(number)
+                    .font(.system(size: 34, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Waiting for \(session.macName) to allow it…")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        case .handingOver:
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Setting it up…").foregroundStyle(.secondary)
+            }
+        case .paired:
+            Label("\(session.macName) is ready to work", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .task {
+                    await load()
+                    self.session = nil
+                }
+        case let .failed(reason):
+            VStack(alignment: .leading, spacing: 8) {
+                Label(reason, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange).font(.callout)
+                Button("Try again") { stop() }
+            }
+        }
+    }
+
+    private func start(with mac: WorkerBrowser.Found) {
+        error = nil
+        session = PairingSession(mac: mac) {
+            // The code is minted only once both ends have agreed, and it is
+            // spent by the Mac within seconds.
+            try await mintCode()
+        }
+    }
+
+    private func stop() {
+        session?.cancel()
+        session = nil
     }
 
     private func describe(_ machine: PairedMac) -> String {
@@ -125,62 +181,26 @@ struct PairMacView: View {
         )
     }
 
-    /// Put the code on the clipboard in a way that can reach the Mac.
-    ///
-    /// Plain `.string =` is eligible for Universal Clipboard already, but says
-    /// nothing about intent; setting localOnly explicitly does. The expiry
-    /// matches the code's own ten minutes -- a spent code left sitting on
-    /// every signed-in device is worth nothing to anyone.
-    private func copyToClipboard(_ text: String) {
-        UIPasteboard.general.setItems(
-            [[UTType.utf8PlainText.identifier: text]],
-            options: [
-                .localOnly: false,
-                .expirationDate: Date().addingTimeInterval(TimeInterval(max(60, secondsLeft))),
-            ]
-        )
-    }
-
     // MARK: - Requests
+
+    private func mintCode() async throws -> (code: String, server: String) {
+        guard let baseURL = client.baseURL else { throw StemsClient.ClientError.notConnected }
+        var request = client.request(baseURL.appendingPathComponent("api/auth/pair"))
+        request.httpMethod = "POST"
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = payload["code"] as? String
+        else { throw StemsClient.ClientError.badResponse(0) }
+        return (code, baseURL.absoluteString)
+    }
 
     private func load() async {
         guard let url = client.baseURL?.appendingPathComponent("api/auth/pairings")
         else { return }
         do {
             let (data, _) = try await URLSession.shared.data(for: client.request(url))
-            let found = (try? JSONDecoder().decode([PairedMac].self, from: data)) ?? []
-            // A code is good for one machine, so a new arrival means this one
-            // has been spent. Clearing it says so without an alert.
-            if found.count > machines.count, code != nil {
-                code = nil
-                secondsLeft = 0
-            }
-            machines = found
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    private func mint() async {
-        guard let url = client.baseURL?.appendingPathComponent("api/auth/pair") else { return }
-        working = true
-        error = nil
-        defer { working = false }
-
-        var request = client.request(url)
-        request.httpMethod = "POST"
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let issued = payload["code"] as? String
-            else {
-                error = "Could not create a code."
-                return
-            }
-            code = issued
-            copied = false
-            secondsLeft = Int(payload["expires_in"] as? Double ?? 600)
+            machines = (try? JSONDecoder().decode([PairedMac].self, from: data)) ?? []
         } catch {
             self.error = error.localizedDescription
         }
