@@ -23,6 +23,10 @@ final class HeadTracker: NSObject, CMHeadphoneMotionManagerDelegate {
     /// turning the band with the listener instead of leaving it in the room.
     private static let yawSign: Float = 1
 
+    /// Told about every update, so the listener keeps turning while the
+    /// player screen is closed. The view's own timer stops when it does.
+    var onUpdate: ((Float, Float, Float) -> Void)?
+
     private(set) var isTracking = false
     private(set) var yaw: Float = 0     // degrees, 0 = facing the stage
     private(set) var pitch: Float = 0
@@ -54,6 +58,7 @@ final class HeadTracker: NSObject, CMHeadphoneMotionManagerDelegate {
             self.pitch = Float(attitude.pitch) * toDegrees
             self.roll = Float(attitude.roll) * toDegrees
             self.isTracking = true
+            self.onUpdate?(self.yaw, self.pitch, self.roll)
         }
     }
 

@@ -23,6 +23,9 @@ final class SpatialEngine {
     private(set) var isPlaying = false
     private(set) var duration: TimeInterval = 0
     private(set) var loadedStems: [String] = []
+    /// Which track is loaded. The engine outlives the screen that started it,
+    /// so coming back has to be told apart from starting something new.
+    private(set) var loadedSlug: String?
     private var seekOffset: TimeInterval = 0
     private var pausedAt: TimeInterval = 0
 
@@ -53,7 +56,7 @@ final class SpatialEngine {
     // MARK: - Loading
 
     /// Attach one player per stem. `urls` are local files already downloaded.
-    func load(stems: [Stem], urls: [String: URL]) throws {
+    func load(slug: String, stems: [Stem], urls: [String: URL]) throws {
         teardown()
 
         engine.attach(environment)
@@ -86,6 +89,7 @@ final class SpatialEngine {
             duration = max(duration, Double(file.length) / file.processingFormat.sampleRate)
         }
 
+        loadedSlug = slug
         loadedStems = stems.compactMap { players[$0.name] != nil ? $0.name : nil }
         clockStem = loadedStems.first
 
@@ -104,6 +108,7 @@ final class SpatialEngine {
         players.removeAll()
         files.removeAll()
         loadedStems.removeAll()
+        loadedSlug = nil
         duration = 0
         seekOffset = 0
         pausedAt = 0

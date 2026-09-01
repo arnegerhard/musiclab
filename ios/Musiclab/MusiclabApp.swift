@@ -8,6 +8,10 @@ struct MusiclabApp: App {
     @State private var apple = AppleMusicSource()
     @State private var spotify = SpotifySource()
     @State private var queue = JobQueue()
+    // Playback outlives the player screen: leaving it should not stop
+    // the music any more than leaving Music.app does.
+    @State private var engine = SpatialEngine()
+    @State private var head = HeadTracker()
 
     init() {
         let client = StemsClient()
@@ -24,6 +28,14 @@ struct MusiclabApp: App {
                 .environment(apple)
                 .environment(spotify)
                 .environment(queue)
+                .environment(engine)
+                .environment(head)
+                .onAppear {
+                    // Keep the room anchored while the player is closed.
+                    head.onUpdate = { yaw, pitch, roll in
+                        engine.updateListener(yaw: yaw, pitch: pitch, roll: roll)
+                    }
+                }
                 .preferredColorScheme(.dark)
         }
     }

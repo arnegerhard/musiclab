@@ -4,8 +4,8 @@ struct PlayerView: View {
     let entry: LibraryEntry
 
     @Environment(StemsClient.self) private var client
-    @State private var engine = SpatialEngine()
-    @State private var head = HeadTracker()
+    @Environment(SpatialEngine.self) private var engine
+    @Environment(HeadTracker.self) private var head
     @State private var route = AudioRoute()
     @State private var track: Track?
     @State private var scene = SpatialScene()
@@ -36,8 +36,10 @@ struct PlayerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .onDisappear {
-            engine.teardown()
-            head.stop()
+            // The music carries on. Only the scene is settled up here; the
+            // engine and the head tracker belong to the app now, and tearing
+            // them down on the way out is what used to cut the song off
+            // halfway through the moment you looked at the library.
             Task { await client.saveScene(scene, slug: entry.slug) }
         }
         .onReceive(ticker) { _ in
@@ -231,6 +233,19 @@ struct PlayerView: View {
             let track = try await client.track(slug: entry.slug)
             self.track = track
 
+            // Already the song in the engine: this is somebody coming back to
+            // watch it, not asking for it again. Reloading would stop it and
+            // start it over from silence.
+            if engine.loadedSlug == entry.slug {
+                scene = await client.scene(slug: entry.slug) ?? scene
+                if scene.placements.isEmpty {
+                    scene.placements = Layout.stage.positions(for: track.leafStems)
+                }
+                elapsed = engine.currentTime
+                head.start()
+                return
+            }
+
             status = "Fetching stems…"
             let urls = client.isDownloaded(slug: entry.slug, stems: track.leafStems)
                 ? client.localURLs(slug: entry.slug, stems: track.leafStems)
@@ -242,7 +257,7 @@ struct PlayerView: View {
             }
             self.scene = scene
 
-            try engine.load(stems: track.leafStems, urls: urls)
+            try engine.load(slug: entry.slug, stems: track.leafStems, urls: urls)
             engine.apply(scene)
             head.start()
         } catch {
