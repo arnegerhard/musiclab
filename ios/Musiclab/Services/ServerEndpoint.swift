@@ -86,6 +86,18 @@ final class ServerResolver {
         return URL(string: text)
     }
 
+    /// How long an address is worth waiting for.
+    ///
+    /// Only the deployed host can legitimately be slow: it may be starting a
+    /// container. A Mac on the local network answers in milliseconds or is not
+    /// there -- and a remembered address from a different network answers
+    /// never, because the packets have nowhere to go. Giving that the cloud's
+    /// patience means the app sits on a spinner for the full timeout before it
+    /// can even offer to look elsewhere.
+    static func timeout(for url: URL) -> TimeInterval {
+        url.host() == cloudURL?.host() ? 25 : 3
+    }
+
     /// Local first where it makes sense, then the cloud. Returns nil only when
     /// neither answered.
     func resolve(using client: StemsClient, discovery: ServerDiscovery) async -> URL? {
@@ -103,7 +115,7 @@ final class ServerResolver {
 
         // Long enough for a cold start. Three seconds made a perfectly healthy
         // deployment look unreachable on the first launch of the day.
-        if let cloud = Self.cloudURL, await client.probe(cloud, timeout: 25) {
+        if let cloud = Self.cloudURL, await client.probe(cloud, timeout: Self.timeout(for: cloud)) {
             source = .cloud
             return cloud
         }

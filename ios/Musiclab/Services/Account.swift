@@ -170,10 +170,22 @@ final class Account: NSObject {
         }
         let request = client.request(baseURL.appendingPathComponent("api/auth/me"))
         guard let (data, response) = try? await URLSession.shared.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
+              let http = response as? HTTPURLResponse
+        else {
+            // The question never reached the server, so nothing was learned
+            // about the session. Keep it: a timeout in a tunnel is not a
+            // sign-out, and throwing the token away means typing a password
+            // to recover from a bad minute of signal.
+            user = nil
+            return false
+        }
+        guard http.statusCode == 200,
               let found = try? JSONDecoder().decode(User.self, from: data)
         else {
-            client.token = ""
+            // Only the server itself saying "not you" retires the token.
+            if http.statusCode == 401 || http.statusCode == 403 {
+                client.token = ""
+            }
             user = nil
             return false
         }

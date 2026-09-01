@@ -9,7 +9,14 @@ struct RootView: View {
     var body: some View {
         Group {
             if !checkedSavedServer {
-                ProgressView().task { await validateSavedServer() }
+                // Checking a remembered address can take a few seconds when
+                // it has gone away. An unexplained spinner reads as a hang.
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("Looking for your server…")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .task { await validateSavedServer() }
             } else if client.baseURL == nil {
                 NavigationStack { ConnectView() }
             } else if !account.isSignedIn {
@@ -21,6 +28,15 @@ struct RootView: View {
                     NavigationStack { AddSongView() }
                         .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 }
+            }
+        }
+        .onChange(of: client.baseURL) { _, url in
+            // Whatever server was just settled on, the stored session has not
+            // been checked against it. Without this, falling back from a Mac
+            // that has gone away lands on the sign-in screen holding a
+            // perfectly good token.
+            if url != nil, !client.token.isEmpty, !account.isSignedIn {
+                Task { await account.restore() }
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -37,7 +53,8 @@ struct RootView: View {
     /// changed port, or shut down. Probe it, and if it is gone drop back to
     /// discovery so the usual local-then-cloud fallback can run.
     private func validateSavedServer() async {
-        if let saved = client.baseURL, await client.probe(saved, timeout: 25) == false {
+        if let saved = client.baseURL,
+           await client.probe(saved, timeout: ServerResolver.timeout(for: saved)) == false {
             client.baseURL = nil
         }
         // A stored session is a guess too: it may have expired or been revoked.
