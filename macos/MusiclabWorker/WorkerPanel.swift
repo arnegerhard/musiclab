@@ -34,6 +34,9 @@ struct WorkerPanel: View {
         }
         .padding(16)
         .frame(width: 320)
+        // Opening the panel is a good moment to be certain, rather than
+        // showing whatever the last tick happened to catch.
+        .onAppear { reader.refresh() }
 
     }
 

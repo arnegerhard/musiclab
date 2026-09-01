@@ -52,10 +52,20 @@ final class StatusReader {
         // Polling rather than watching the file: the worker replaces it by
         // rename, which a file-descriptor watch stops seeing after the first
         // swap.
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             self?.read()
         }
+        // .common, not the default mode. An open menu bar panel puts the run
+        // loop into event tracking, where a default-mode timer does not fire
+        // -- so the one moment this needs to be up to date is precisely the
+        // moment it would stop refreshing, leaving whatever it read at launch
+        // frozen on screen.
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
+
+    /// Read now, without waiting for the next tick.
+    func refresh() { read() }
 
     func stop() {
         timer?.invalidate()
