@@ -16,10 +16,12 @@ final class HeadTracker: NSObject, CMHeadphoneMotionManagerDelegate {
     private let manager = CMHeadphoneMotionManager()
     private var reference: CMAttitude?
 
-    /// If the room turns the wrong way when you turn your head, flip this.
     /// CoreMotion's head frame and the audio environment's listener frame
-    /// disagree about handedness on some hardware, and the sign is the fix.
-    private static let yawSign: Float = -1
+    /// agree on handedness: both take yaw as counterclockwise-positive, so the
+    /// angle passes through unchanged. Negating it -- which is what this did
+    /// before anyone had tried it on AirPods -- drove the room the wrong way,
+    /// turning the band with the listener instead of leaving it in the room.
+    private static let yawSign: Float = 1
 
     private(set) var isTracking = false
     private(set) var yaw: Float = 0     // degrees, 0 = facing the stage
