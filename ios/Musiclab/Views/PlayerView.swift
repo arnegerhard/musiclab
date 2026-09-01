@@ -225,6 +225,9 @@ struct PlayerView: View {
     private func load() async {
         do {
             try engine.configureSession()
+            // Only now does the session know what it is playing through.
+            route.refresh()
+            engine.matchOutput(headphones: route.isHeadphones)
             let track = try await client.track(slug: entry.slug)
             self.track = track
 

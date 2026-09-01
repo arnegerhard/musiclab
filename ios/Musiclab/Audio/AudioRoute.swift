@@ -20,6 +20,9 @@ final class AudioRoute {
     private var observer: NSObjectProtocol?
 
     init() {
+        // Whatever this reads now is provisional: until the session has a
+        // category and is active, AVAudioSession answers with the default
+        // output rather than the one actually in use.
         refresh()
         observer = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
@@ -32,7 +35,14 @@ final class AudioRoute {
         if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
-    private func refresh() {
+    /// Read the route again.
+    ///
+    /// Must be called once the audio session is active. An inactive session
+    /// reports the built-in speaker no matter what is really connected, so a
+    /// pair of AirPods that were already in before this screen opened would
+    /// otherwise never be noticed -- there is no change for the route-change
+    /// notification to report.
+    func refresh() {
         let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
         guard let port = outputs.first else {
             name = "No output"; icon = "speaker.slash"; isHeadphones = false
