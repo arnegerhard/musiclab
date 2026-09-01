@@ -28,6 +28,18 @@ final class WorkerBrowser {
         didSet { if alreadyPaired != oldValue { apply() } }
     }
 
+    /// Services this phone has just finished pairing with.
+    ///
+    /// Belt and braces beside the machine identity: this works the instant
+    /// pairing succeeds, needs nothing from the server, and covers a Mac too
+    /// old to send an identity at all.
+    private var dismissed: Set<String> = []
+
+    func hide(_ mac: Found) {
+        dismissed.insert(mac.id)
+        apply()
+    }
+
     private(set) var macs: [Found] = []
     /// Everything the network is offering, before filtering.
     private var found: [Found] = []
@@ -35,6 +47,7 @@ final class WorkerBrowser {
 
     private func apply() {
         macs = found
+            .filter { !dismissed.contains($0.id) }
             .filter { $0.machine.isEmpty || !alreadyPaired.contains($0.machine) }
             .sorted { $0.name < $1.name }
     }

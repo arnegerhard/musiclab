@@ -11,6 +11,7 @@ struct PairMacView: View {
 
     @State private var browser = WorkerBrowser()
     @State private var session: PairingSession?
+    @State private var pairingWith: WorkerBrowser.Found?
     @State private var machines: [PairedMac] = []
     @State private var error: String?
 
@@ -146,8 +147,13 @@ struct PairMacView: View {
             Label("\(session.macName) is ready to work", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
                 .task {
+                    // Drop it from the offered list at once, rather than
+                    // waiting for the network to stop repeating an
+                    // advertisement the Mac has already withdrawn.
+                    if let mac = pairingWith { browser.hide(mac) }
                     await load()
                     self.session = nil
+                    self.pairingWith = nil
                 }
         case let .failed(reason):
             VStack(alignment: .leading, spacing: 8) {
@@ -160,6 +166,7 @@ struct PairMacView: View {
 
     private func start(with mac: WorkerBrowser.Found) {
         error = nil
+        pairingWith = mac
         session = PairingSession(mac: mac) {
             // The code is minted only once both ends have agreed, and it is
             // spent by the Mac within seconds.
