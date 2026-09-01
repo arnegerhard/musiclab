@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D813BAC0125F6D496462B818 /* TwoFingerPan.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD6A2E099D35E1D2F628B85 /* TwoFingerPan.swift */; };
 		0097F436FCC25D1019745C98 /* StageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91EFBD2AF8520C465C4E27D7 /* StageView.swift */; };
 		1E2768A15CCD05645B783A2E /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E5F775423E254D5B94FC635 /* Account.swift */; };
 		2785C2A4C2C9A68D14C9E79B /* MusiclabApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2063FBA09D59E106EE30AE /* MusiclabApp.swift */; };
@@ -49,6 +50,7 @@
 		781F89450551DC6C6D5CE3F1 /* SpatialScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialScene.swift; sourceTree = "<group>"; };
 		7E1C9EEA0809B0A96BAE7CF0 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		8927DE1196C479F3C889BFB1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		ECD6A2E099D35E1D2F628B85 /* TwoFingerPan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFingerPan.swift; sourceTree = "<group>"; };
 		91EFBD2AF8520C465C4E27D7 /* StageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StageView.swift; sourceTree = "<group>"; };
 		9563FD786BCCFCF1A59BC618 /* StemsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StemsClient.swift; sourceTree = "<group>"; };
 		973D5496CD7FBBE5AF17E2E7 /* Track.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Track.swift; sourceTree = "<group>"; };
@@ -80,6 +82,7 @@
 				7E1C9EEA0809B0A96BAE7CF0 /* RootView.swift */,
 				1ACBD0952A2E3803BA2ED5CA /* SignInView.swift */,
 				E7A2DBBADB33369533C09AAF /* SpotifySetupView.swift */,
+				ECD6A2E099D35E1D2F628B85 /* TwoFingerPan.swift */,
 				91EFBD2AF8520C465C4E27D7 /* StageView.swift */,
 				9CF45703510864FC22388A55 /* TrackPickerView.swift */,
 			);
@@ -237,6 +240,7 @@
 				28FCF2EE9F81172E8E77D22F /* SpatialScene.swift in Sources */,
 				8E4980CB05DB5EEC7A5DCDD1 /* SpotifySetupView.swift in Sources */,
 				DB29AFAC5D3E1A9CDDC2724E /* SpotifySource.swift in Sources */,
+				D813BAC0125F6D496462B818 /* TwoFingerPan.swift in Sources */,
 				0097F436FCC25D1019745C98 /* StageView.swift in Sources */,
 				F1222A7A610803BF1C22AD57 /* StemsClient.swift in Sources */,
 				560B30F7A353BB061D041334 /* Track.swift in Sources */,

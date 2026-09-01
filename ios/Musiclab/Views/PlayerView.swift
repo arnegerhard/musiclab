@@ -197,6 +197,11 @@ struct PlayerView: View {
                         Text("silent").font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if abs(placement.y) >= 0.1 {
+                        Text(String(format: "%+.1f m", placement.y))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(placement.y > 0 ? .teal : .orange)
+                    }
                     Text(String(format: "%.1f m", placement.distance))
                         .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                     toggle("M", on: placement.mute) { scene.placements[stem.name]?.mute.toggle() }
