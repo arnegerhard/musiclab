@@ -491,7 +491,7 @@ client. The server advertises itself over Bonjour; the app finds it, downloads
 the mono stems, and plays them locally.
 
 ```bash
-cd ios && xcodegen generate && open Musiclab.xcodeproj
+cd ios && open Musiclab.xcodeproj
 ```
 
 Set your signing team in Xcode, then run. On the Mac, start the server — note

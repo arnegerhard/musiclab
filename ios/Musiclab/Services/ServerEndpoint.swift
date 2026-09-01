@@ -77,7 +77,7 @@ final class ServerResolver {
     private(set) var source: Source?
     private(set) var lastError: String?
 
-    /// Set at build time (see project.yml) so TestFlight and the App Store
+    /// Set at build time (MUSICLAB_CLOUD_URL build setting) so TestFlight and the App Store
     /// point at the deployed server without anybody typing an address.
     static var cloudURL: URL? {
         guard let text = Bundle.main.object(forInfoDictionaryKey: "MusiclabCloudURL") as? String,

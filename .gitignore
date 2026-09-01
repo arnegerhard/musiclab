@@ -8,16 +8,15 @@ __pycache__/
 out/
 models/
 
-# Xcode. The project is generated from project.yml by xcodegen, so it is not
-# tracked; run `xcodegen generate` after cloning.
+# Xcode. The iOS project is edited by hand in Xcode and tracked, along with
+# the Info.plist and entitlements it owns. Only per-user window state and
+# build products are ignored.
 ios/build/
-ios/*.xcodeproj/
 DerivedData/
 xcuserdata/
+*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 
 .DS_Store
-ios/Musiclab/Info.plist
-ios/Musiclab/Musiclab.entitlements
 
 # Accounts: password hashes and live session tokens. Never commit this.
 musiclab.db
