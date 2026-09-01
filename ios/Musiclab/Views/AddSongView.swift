@@ -5,9 +5,10 @@ struct AddSongView: View {
     @Environment(StemsClient.self) private var client
     @Environment(AppleMusicSource.self) private var apple
     @Environment(SpotifySource.self) private var spotify
+    @Environment(JobQueue.self) private var queue
 
     @State private var link = ""
-    @State private var batchID: String?
+    @State private var added: String?
     @State private var error: String?
     @State private var submitting = false
     @State private var showingSpotifySetup = false
@@ -19,6 +20,7 @@ struct AddSongView: View {
             Section {
                 HStack(spacing: 8) {
                     TextField("youtube.com/watch?v=…", text: $link)
+                        .onChange(of: link) { _, _ in added = nil }
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
@@ -70,12 +72,18 @@ struct AddSongView: View {
                 spotifyRow
             }
 
+            if let added {
+                Section {
+                    Label(added, systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green).font(.callout)
+                }
+            }
+
             if let error {
                 Section { Text(error).foregroundStyle(.red).font(.callout) }
             }
         }
         .navigationTitle("Add a song")
-        .navigationDestination(item: $batchID) { BatchView(batchID: $0) }
         .navigationDestination(for: MusicSource.self) { source in
             MusicBrowserView(source: source)
         }
@@ -117,15 +125,23 @@ struct AddSongView: View {
         return text.contains(".") && !text.contains(" ")
     }
 
+    /// Hand the song over and stay here.
+    ///
+    /// This screen used to push into the progress view, which made adding two
+    /// songs in a row a matter of navigating back out of something. The queue
+    /// is a tab of its own now, so this can go back to being the place where
+    /// songs are added.
     private func separateLink() async {
         submitting = true
         error = nil
         defer { submitting = false; phase = ""; fraction = 0 }
         do {
             phase = "Sending to the server"
-            let job = try await client.separate(link: link.trimmingCharacters(in: .whitespaces))
+            let title = link.trimmingCharacters(in: .whitespaces)
+            _ = try await client.separate(link: title)
             link = ""
-            batchID = job
+            added = "Added to the queue"
+            await queue.refresh()
         } catch {
             self.error = error.localizedDescription
         }

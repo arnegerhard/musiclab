@@ -242,6 +242,7 @@ def _enqueue(request: JobRequest, user: dict) -> str:
     jobs.store.create(job_id, {
         "id": job_id,
         "user_id": user["id"],
+        "created_at": time.time(),
         "status": "queued",
         "phase": "Queued",
         "progress": 0,
@@ -551,6 +552,37 @@ def create_job(request: JobRequest, user: dict = Depends(current_user)):
     if not (request.url and request.url.strip()) and request.track is None:
         raise HTTPException(400, "give either a url or a track")
     return {"id": _enqueue(request, user)}
+
+
+@app.get("/api/jobs")
+def active_jobs(user: dict = Depends(current_user)):
+    """Everything this user is waiting on, newest first.
+
+    The phone shows this as a queue: a song can sit here for ten minutes
+    while a Mac works through it, and until now the only way to watch was to
+    stay on the screen you happened to submit from.
+    """
+    jobs.refresh()
+    found = jobs.store.active(user["id"])
+    found.sort(key=lambda job: job.get("created_at", 0), reverse=True)
+    return [_public_job(job) for job in found]
+
+
+@app.delete("/api/jobs/{job_id}")
+def cancel_job(job_id: str, user: dict = Depends(current_user)):
+    """Take a job out of the queue.
+
+    A worker already separating it will still deliver, and the stems are kept
+    -- this is about the list, not about killing work in flight. It is also
+    the only way to clear a job whose worker died holding it, since nothing
+    reclaims a stale claim.
+    """
+    job = jobs.store.get(job_id)
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+    _update(job_id, status="error", phase="Cancelled", error="Cancelled")
+    jobs.publish()
+    return {"ok": True}
 
 
 @app.post("/api/jobs/{job_id}/confirm")

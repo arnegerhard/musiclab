@@ -7,6 +7,7 @@ struct MusiclabApp: App {
     @State private var account: Account
     @State private var apple = AppleMusicSource()
     @State private var spotify = SpotifySource()
+    @State private var queue = JobQueue()
 
     init() {
         let client = StemsClient()
@@ -22,6 +23,7 @@ struct MusiclabApp: App {
                 .environment(account)
                 .environment(apple)
                 .environment(spotify)
+                .environment(queue)
                 .preferredColorScheme(.dark)
         }
     }

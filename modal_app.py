@@ -147,6 +147,21 @@ class ModalJobStore:
                 found.append(worker)
         return found
 
+    def active(self, user_id: str) -> list[dict]:
+        # Imported here like the rest of this class: the module is not
+        # available at import time in the Modal image build.
+        from stems import jobs as job_module
+
+        found = []
+        for key in self._d.keys():
+            if not str(key).startswith("job:"):
+                continue
+            job = self._d.get(key)
+            if (job and job.get("user_id") == user_id
+                    and job.get("status") not in job_module.FINISHED):
+                found.append(job)
+        return found
+
     def awaiting_fetch(self, user_id: str) -> list[str]:
         found = []
         for key in self._d.keys():

@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(StemsClient.self) private var client
     @Environment(Account.self) private var account
+    @Environment(JobQueue.self) private var queue
     @Environment(\.scenePhase) private var scenePhase
     @State private var checkedSavedServer = false
 
@@ -25,9 +26,15 @@ struct RootView: View {
                 TabView {
                     NavigationStack { LibraryView() }
                         .tabItem { Label("Library", systemImage: "square.stack.3d.up") }
+                    NavigationStack { QueueView() }
+                        .tabItem { Label("Queue", systemImage: "clock.arrow.circlepath") }
+                        // Only when there is something to say. A zero badge is
+                        // a permanent little alarm about nothing.
+                        .badge(queue.count == 0 ? 0 : queue.count)
                     NavigationStack { AddSongView() }
                         .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 }
+                .task { queue.begin(with: client) }
             }
         }
         .onChange(of: client.baseURL) { _, url in

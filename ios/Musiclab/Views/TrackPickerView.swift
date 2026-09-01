@@ -11,13 +11,15 @@ struct TrackPickerView: View {
     let loader: Loader
 
     @Environment(StemsClient.self) private var client
+
+    @Environment(JobQueue.self) private var queue
     @Environment(AppleMusicSource.self) private var apple
     @Environment(SpotifySource.self) private var spotify
 
     @State private var tracks: [PlaylistTrack] = []
     @State private var selected: Set<String> = []
     @State private var loading = true
-    @State private var batchID: String?
+    @State private var queued = false
     @State private var error: String?
 
     var body: some View {
@@ -34,6 +36,10 @@ struct TrackPickerView: View {
                 }
                 .buttonStyle(.plain)
             }
+            if queued {
+                Label("Added to the queue", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green).font(.callout)
+            }
             if let error {
                 Text(error).foregroundStyle(.red).font(.callout)
             }
@@ -42,7 +48,6 @@ struct TrackPickerView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { footer }
-        .navigationDestination(item: $batchID) { BatchView(batchID: $0) }
         .toolbar {
             if tracks.count > 1 {
                 Button(selected.count == tracks.count ? "None" : "All") {
@@ -98,11 +103,16 @@ struct TrackPickerView: View {
         }
     }
 
+    /// Queue the selection and say so, rather than navigating into a
+    /// progress screen. Watching happens in the Queue tab now.
     private func separate() async {
         do {
-            batchID = try await client.separate(
+            _ = try await client.separate(
                 tracks: tracks.filter { selected.contains($0.id) }
-            ).id
+            )
+            selected = []
+            queued = true
+            await queue.refresh()
         } catch {
             self.error = error.localizedDescription
         }

@@ -14,6 +14,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 
+#: Statuses a job never leaves.
+FINISHED = {"done", "error"}
+
+
 class MemoryJobStore:
     """Job state held in this process. Correct whenever one process does
     everything, which is the case on the Mac."""
@@ -58,6 +62,15 @@ class MemoryJobStore:
             return [
                 w for w in self._workers.values()
                 if w["user_id"] == user_id and w["seen"] > cutoff
+            ]
+
+    def active(self, user_id: str) -> list[dict]:
+        """Everything this user has asked for that has not finished."""
+        with self._lock:
+            return [
+                job for job in self._jobs.values()
+                if job.get("user_id") == user_id
+                and job.get("status") not in FINISHED
             ]
 
     def awaiting_fetch(self, user_id: str) -> list[str]:
