@@ -151,7 +151,11 @@ final class PairingHost {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(
-            withJSONObject: ["code": code, "label": Host.current().localizedName ?? "A Mac"]
+            withJSONObject: [
+                "code": code,
+                "label": Host.current().localizedName ?? "A Mac",
+                "machine": Self.machineID,
+            ]
         )
         request.timeoutInterval = 30
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -160,6 +164,20 @@ final class PairingHost {
               let token = payload["token"] as? String
         else { throw URLError(.userAuthenticationRequired) }
         return token
+    }
+
+    /// This Mac, across sign-outs.
+    ///
+    /// Kept in defaults rather than in the worker's configuration, which is
+    /// deleted on sign out -- the whole point is to still be recognisable
+    /// afterwards, so the same Mac replaces its own entry instead of adding a
+    /// second one.
+    static var machineID: String {
+        let key = "machineID"
+        if let existing = UserDefaults.standard.string(forKey: key) { return existing }
+        let fresh = UUID().uuidString
+        UserDefaults.standard.set(fresh, forKey: key)
+        return fresh
     }
 
     /// Both nonces, hashed together. Neither side can steer the result.

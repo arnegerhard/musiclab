@@ -172,6 +172,7 @@ def confirm_reset(body: ResetConfirm):
 class PairClaim(BaseModel):
     code: str
     label: str = ""
+    machine: str = ""
 
 
 @router.post("/pair")
@@ -185,7 +186,7 @@ def start_pair(user: dict = Depends(current_user)):
 def claim_pair(body: PairClaim):
     """Unauthenticated on purpose: holding the code is the credential."""
     try:
-        token = auth.complete_pairing(body.code, body.label)
+        token = auth.complete_pairing(body.code, body.label, body.machine)
     except auth.AuthError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"token": token}

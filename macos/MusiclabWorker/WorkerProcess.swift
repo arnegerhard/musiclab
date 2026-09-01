@@ -125,6 +125,23 @@ final class WorkerProcess {
     /// it was doing.
     func signOut() {
         stop()
+        // Hand the credential back before forgetting it. Without this the
+        // session lives on for its full year, invisible to this Mac and
+        // indistinguishable in the owner's list from the one that replaces
+        // it -- so every sign-out and re-pair left another ghost behind.
+        if let config = Self.loadConfiguration(),
+           let token = Keychain.read(),
+           let url = URL(string: config.server)?.appendingPathComponent("api/auth/logout") {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 15
+            // Nothing waits on this: signing out must work with the server
+            // unreachable. A session that outlives an offline sign-out is a
+            // stale row, not a security hole -- it can still be revoked from
+            // the phone.
+            URLSession.shared.dataTask(with: request).resume()
+        }
         Keychain.clear()
         try? FileManager.default.removeItem(at: Self.configURL)
         // The status file outlives the process that wrote it, so without this

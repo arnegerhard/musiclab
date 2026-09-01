@@ -108,6 +108,9 @@ def _migrate(connection: sqlite3.Connection) -> None:
         ("scope", "TEXT NOT NULL DEFAULT 'full'"),
         ("label", "TEXT"),
         ("last_seen", "REAL"),
+        # Which physical machine a worker session belongs to, so the same Mac
+        # pairing again replaces its own row instead of adding another.
+        ("machine", "TEXT"),
     ):
         if column not in existing:
             connection.execute(f"ALTER TABLE sessions ADD COLUMN {column} {declaration}")
@@ -188,6 +191,7 @@ def create_session(
     lifetime_days: int = 365,
     scope: str = "full",
     label: str | None = None,
+    machine: str | None = None,
 ) -> str:
     """Returns the session's public id, which is what revocation refers to.
 
@@ -198,10 +202,10 @@ def create_session(
     session_id = new_id()
     connect().execute(
         "INSERT INTO sessions"
-        " (token_hash, user_id, created_at, expires_at, id, scope, label)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        " (token_hash, user_id, created_at, expires_at, id, scope, label, machine)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (token_hash, user_id, now, now + lifetime_days * 86400,
-         session_id, scope, label),
+         session_id, scope, label, machine),
     )
     _commit()
     return session_id
@@ -255,6 +259,21 @@ def sessions_with_scope(user_id: str, scope: str) -> list[dict]:
         (user_id, scope, time.time()),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def retire_machine(user_id: str, machine: str) -> int:
+    """Drop any worker session this machine already holds.
+
+    A Mac that signs out hands its credential back, but a sign-out with the
+    server unreachable cannot, and neither can one that was wiped. Without
+    this, the owner's list of Macs grows a duplicate every time.
+    """
+    cursor = connect().execute(
+        "DELETE FROM sessions WHERE user_id = ? AND scope = 'worker' AND machine = ?",
+        (user_id, machine),
+    )
+    _commit()
+    return cursor.rowcount
 
 
 def delete_session_by_id(user_id: str, session_id: str) -> bool:

@@ -75,12 +75,17 @@ def _token_hash(token: str) -> str:
 
 
 def issue_session(
-    user_id: str, scope: str = "full", label: str | None = None
+    user_id: str,
+    scope: str = "full",
+    label: str | None = None,
+    machine: str | None = None,
 ) -> str:
     """Return the bearer token. Only its hash is stored, so a stolen database
     does not hand over live sessions."""
     token = secrets.token_urlsafe(32)
-    db.create_session(user_id, _token_hash(token), scope=scope, label=label)
+    db.create_session(
+        user_id, _token_hash(token), scope=scope, label=label, machine=machine
+    )
     return token
 
 
@@ -123,7 +128,7 @@ def normalise_pair_code(code: str) -> str:
     return (code or "").strip().upper().replace("-", "").replace(" ", "")
 
 
-def complete_pairing(code: str, label: str) -> str:
+def complete_pairing(code: str, label: str, machine: str = "") -> str:
     """Trade a code for a worker-scoped token. Raises if it is wrong, already
     used, or older than PAIR_TTL_SECONDS."""
     cleaned = normalise_pair_code(code)
@@ -132,7 +137,12 @@ def complete_pairing(code: str, label: str) -> str:
     row = db.take_pair_code(_token_hash(cleaned))
     if row is None:
         raise AuthError("That code is not valid or has expired.")
-    return issue_session(row["user_id"], scope="worker", label=label.strip() or "A Mac")
+    if machine:
+        db.retire_machine(row["user_id"], machine)
+    return issue_session(
+        row["user_id"], scope="worker",
+        label=label.strip() or "A Mac", machine=machine or None,
+    )
 
 
 # MARK: Sign in with Apple
