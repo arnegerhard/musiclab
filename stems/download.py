@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,8 +22,20 @@ class Source:
 
 
 def slugify(value: str, limit: int = 60) -> str:
-    value = re.sub(r"[^\w\s-]", "", value, flags=re.UNICODE).strip()
+    """A slug safe to use as a directory name and a URL path segment.
+
+    Accents are folded to their base letters and anything still not ASCII is
+    dropped. \\w kept them before, which is fine for a filename and fatal for a
+    path: the deployment's HTTP layer decodes path segments as ASCII and
+    refuses the request outright, so a song with an umlaut in its title
+    separated perfectly and then could not be opened.
+    """
+    value = unicodedata.normalize("NFKD", value)
+    value = value.encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"[^\w\s-]", "", value).strip()
     value = re.sub(r"[\s_-]+", "-", value)
+    # A title with nothing ASCII in it at all still gets a usable name; the
+    # video id appended by the caller keeps it unique.
     return value[:limit].strip("-").lower() or "track"
 
 

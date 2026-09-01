@@ -280,6 +280,47 @@ def bench():
     print(benchmark.remote())
 
 
+@app.function(image=image, volumes={DATA_DIR: data}, timeout=600)
+def _repair_slugs() -> list[str]:
+    """Rename any track directory whose name is not ASCII.
+
+    Such a name cannot be requested: the HTTP layer decodes path segments as
+    ASCII and rejects the request before the app sees it. Tracks separated
+    before slugify folded accents are stranded until they are renamed.
+    """
+    from pathlib import Path
+
+    from stems.download import slugify
+
+    renamed = []
+    root = Path(f"{DATA_DIR}/out")
+    for user_dir in root.glob("*"):
+        if not user_dir.is_dir():
+            continue
+        for track in user_dir.glob("*"):
+            if not track.is_dir() or track.name.isascii():
+                continue
+            # Keep the trailing id, which is already ASCII and is what makes
+            # the name unique.
+            head, _, tail = track.name.rpartition("-")
+            fixed = f"{slugify(head)}-{tail}" if tail else slugify(track.name)
+            target = track.parent / fixed
+            if target.exists():
+                continue
+            track.rename(target)
+            renamed.append(f"{track.name} -> {fixed}")
+    data.commit()
+    return renamed
+
+
+@app.local_entrypoint()
+def repair():
+    """Fix track names that cannot be requested: `modal run modal_app.py::repair`"""
+    for line in _repair_slugs.remote():
+        print(line)
+    print("done")
+
+
 @app.local_entrypoint()
 def account(email: str = "", password: str = ""):
     """Create an account: `MUSICLAB_PASSWORD=... modal run modal_app.py::account --email you@example.com`
