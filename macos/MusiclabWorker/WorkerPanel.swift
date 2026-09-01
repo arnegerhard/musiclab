@@ -15,7 +15,7 @@ struct WorkerPanel: View {
 
             if !WorkerProcess.isPackaged {
                 noEngine
-            } else if status.state == .stopped && WorkerProcess.loadConfiguration() == nil {
+            } else if !worker.isPaired {
                 notSetUp
             } else {
                 activity
@@ -34,7 +34,7 @@ struct WorkerPanel: View {
         .frame(width: 320)
         .task {
             reader.start()
-            if WorkerProcess.isPackaged, WorkerProcess.loadConfiguration() != nil {
+            if WorkerProcess.isPackaged, worker.isPaired {
                 worker.start()
             }
         }
@@ -125,15 +125,11 @@ struct WorkerPanel: View {
 
     private var controls: some View {
         HStack {
-            if WorkerProcess.isPackaged, WorkerProcess.loadConfiguration() != nil {
+            if WorkerProcess.isPackaged, worker.isPaired {
                 Button(worker.isRunning ? "Pause" : "Resume") {
                     worker.isRunning ? worker.stop() : worker.start()
                 }
-                Button("Sign out") {
-                    worker.stop()
-                    Keychain.clear()
-                    try? FileManager.default.removeItem(at: WorkerProcess.configURL)
-                }
+                Button("Sign out") { worker.signOut() }
             }
             Spacer()
             Button("Quit") {

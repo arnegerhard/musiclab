@@ -19,7 +19,7 @@ struct MusiclabWorkerApp: App {
         // MenuBarExtra window do not reliably take keyboard focus, which makes
         // a form there impossible to fill in.
         Window("Pair this Mac", id: "setup") {
-            SetupView { worker.start() }
+            SetupView { worker.adoptPairing() }
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)

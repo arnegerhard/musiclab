@@ -6,9 +6,21 @@ import Observation
 final class WorkerProcess {
     private(set) var isRunning = false
     private(set) var lastError: String?
+    /// Whether this Mac has a credential. Observed, so the panel actually
+    /// redraws when it changes -- reading the file inside `body` did not,
+    /// because deleting a file invalidates no SwiftUI state.
+    private(set) var isPaired = WorkerProcess.loadConfiguration() != nil
 
     private var process: Process?
-    private var restarting = false
+    /// Whether the worker is meant to be running. A process that dies while
+    /// this is true has crashed and should come back; one that dies while it
+    /// is false was asked to stop and must stay stopped.
+    ///
+    /// The flag it replaces was set and cleared inside stop(), synchronously,
+    /// while the termination it was guarding arrives later -- so it always
+    /// read "not a deliberate stop" and Pause restarted itself after twenty
+    /// seconds.
+    private var wantsToRun = false
 
     private static var support: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -94,7 +106,7 @@ final class WorkerProcess {
             Task { @MainActor in
                 self?.isRunning = false
                 // The machine may have slept or the network gone away; come back.
-                if self?.restarting == false { self?.scheduleRestart() }
+                if self?.wantsToRun == true { self?.scheduleRestart() }
             }
         }
 
@@ -102,22 +114,46 @@ final class WorkerProcess {
             try task.run()
             process = task
             isRunning = true
+            wantsToRun = true
             lastError = nil
         } catch {
             lastError = error.localizedDescription
         }
     }
 
+    /// Give up this Mac's credential and everything that describes the work
+    /// it was doing.
+    func signOut() {
+        stop()
+        Keychain.clear()
+        try? FileManager.default.removeItem(at: Self.configURL)
+        // The status file outlives the process that wrote it, so without this
+        // the panel goes on reporting "waiting for a song" from a worker that
+        // no longer exists.
+        try? FileManager.default.removeItem(at: Self.statusURL)
+        isPaired = false
+    }
+
+    /// Called once a pairing succeeds.
+    func adoptPairing() {
+        isPaired = Self.loadConfiguration() != nil
+        start()
+    }
+
+    static var statusURL: URL { support.appendingPathComponent("status.json") }
+
     func stop() {
-        restarting = true
+        wantsToRun = false
         process?.terminate()
         process = nil
         isRunning = false
-        restarting = false
     }
 
     private func scheduleRestart() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+            // Twenty seconds is long enough for someone to have paused or
+            // signed out in the meantime.
+            guard self?.wantsToRun == true else { return }
             self?.start()
         }
     }
