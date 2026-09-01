@@ -44,6 +44,12 @@ final class SpatialEngine {
         }
     }
 
+    /// Re-aim the renderer after someone picks a different device mid-song.
+    /// Safe to call before anything is loaded.
+    func matchOutput(headphones: Bool) {
+        environment.outputType = headphones ? .headphones : .builtInSpeakers
+    }
+
     // MARK: - Loading
 
     /// Attach one player per stem. `urls` are local files already downloaded.
@@ -53,8 +59,10 @@ final class SpatialEngine {
         engine.attach(environment)
         engine.connect(environment, to: engine.mainMixerNode, format: nil)
 
-        // Tell the renderer to produce a binaural mix rather than a speaker one.
-        environment.outputType = .headphones
+        // Binaural rendering assumes two ears close together. Sent to the
+        // phone speaker it smears the mix instead of placing it, so follow
+        // whatever the route picker selected.
+        environment.outputType = isUsingHeadphones ? .headphones : .builtInSpeakers
         environment.distanceAttenuationParameters.distanceAttenuationModel = .inverse
         environment.distanceAttenuationParameters.referenceDistance = 1.0
         environment.distanceAttenuationParameters.maximumDistance = maxDistance

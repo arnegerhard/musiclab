@@ -6,6 +6,7 @@ struct PlayerView: View {
     @Environment(StemsClient.self) private var client
     @State private var engine = SpatialEngine()
     @State private var head = HeadTracker()
+    @State private var route = AudioRoute()
     @State private var track: Track?
     @State private var scene = SpatialScene()
     @State private var status = "Loading…"
@@ -44,6 +45,7 @@ struct PlayerView: View {
             engine.updateListener(yaw: head.yaw, pitch: head.pitch, roll: head.roll)
         }
         .onChange(of: scene) { _, new in engine.apply(new) }
+        .onChange(of: route.isHeadphones) { _, on in engine.matchOutput(headphones: on) }
     }
 
     private var content: some View {
@@ -57,7 +59,7 @@ struct PlayerView: View {
                 )
                 .padding(.horizontal)
 
-                headStatus
+                outputSection
                 transport
                 roomControls
                 stemList
@@ -68,24 +70,54 @@ struct PlayerView: View {
 
     // MARK: - Sections
 
-    private var headStatus: some View {
-        HStack(spacing: 10) {
-            Image(systemName: head.isTracking ? "airpods.pro" : "headphones")
-                .foregroundStyle(head.isTracking ? .green : .secondary)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(head.isTracking ? "Head tracking on" : "No head tracking")
-                    .font(.caption).fontWeight(.medium)
-                Text(head.isTracking
-                     ? "Turn your head — the band stays put."
-                     : "Connect AirPods, or drag the slider to turn.")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Recenter") { head.recenter() }
-                .font(.caption).buttonStyle(.bordered)
-        }
-        .padding(.horizontal)
+    /// Which device is playing, and what that device can do for the mix.
+    /// The picker itself is the system one — the list of paired Bluetooth
+    /// devices is not something an app is allowed to read.
+    private var outputSection: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: route.icon)
+                    .font(.title3)
+                    .foregroundStyle(route.isHeadphones ? .green : .orange)
+                    .frame(width: 26)
 
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(route.name)
+                        .font(.caption).fontWeight(.medium).lineLimit(1)
+                    Text(route.isHeadphones
+                         ? "Spatial mix — the room is around you."
+                         : "Speaker: the room collapses. Pick headphones.")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+
+                Spacer()
+
+                // AVRoutePickerView draws and sizes its own AirPlay glyph.
+                RoutePicker()
+                    .frame(width: 34, height: 34)
+                    .accessibilityLabel("Choose playback device")
+            }
+
+            Divider().opacity(0.25)
+
+            HStack(spacing: 10) {
+                Image(systemName: head.isTracking ? "arrow.trianglehead.2.clockwise.rotate.90" : "circle.dashed")
+                    .font(.caption)
+                    .foregroundStyle(head.isTracking ? .green : .secondary)
+                    .frame(width: 26)
+                Text(head.isTracking
+                     ? "Head tracking on — turn your head, the band stays put."
+                     : "No head tracking. Drag the slider below to turn.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Button("Recenter") { head.recenter() }
+                    .font(.caption2).buttonStyle(.bordered)
+                    .disabled(!head.isTracking)
+            }
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
     }
 
     private var transport: some View {

@@ -22,6 +22,8 @@
 		80904057D911E98008B285A4 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD45343DD8B0761ED7722E03 /* LibraryView.swift */; };
 		86BF5A57AF6C44770D38EFBF /* ServerDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */; };
 		8E4980CB05DB5EEC7A5DCDD1 /* SpotifySetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A2DBBADB33369533C09AAF /* SpotifySetupView.swift */; };
+		45C446C240B0892DD8AB584A /* AudioRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDC02A9400EABF8EFC360EB /* AudioRoute.swift */; };
+		BFC1E5A7C6946032E2F6F804 /* RoutePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D888418B3CC63F8245EAB3AB /* RoutePicker.swift */; };
 		9B474F78D6DCD76807D17225 /* SpatialEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC3FA434CA8F0B4AF9F7D2D6 /* SpatialEngine.swift */; };
 		AE5701625BC4FCF4B07C6817 /* BatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B126CE9454BA2DA151142C62 /* BatchView.swift */; };
 		BEF098C2E1EA1DC5DA961022 /* HeadTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2152E01D482DDB9B9184D06 /* HeadTracker.swift */; };
@@ -58,6 +60,8 @@
 		AE2063FBA09D59E106EE30AE /* MusiclabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusiclabApp.swift; sourceTree = "<group>"; };
 		B126CE9454BA2DA151142C62 /* BatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchView.swift; sourceTree = "<group>"; };
 		CAB08C710C0932FDDE0DF0DE /* Musiclab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Musiclab.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2DDC02A9400EABF8EFC360EB /* AudioRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoute.swift; sourceTree = "<group>"; };
+		D888418B3CC63F8245EAB3AB /* RoutePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutePicker.swift; sourceTree = "<group>"; };
 		DC3FA434CA8F0B4AF9F7D2D6 /* SpatialEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialEngine.swift; sourceTree = "<group>"; };
 		E7A2DBBADB33369533C09AAF /* SpotifySetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifySetupView.swift; sourceTree = "<group>"; };
 		F2152E01D482DDB9B9184D06 /* HeadTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadTracker.swift; sourceTree = "<group>"; };
@@ -93,6 +97,8 @@
 		8AEFB909B1FCE7CB88978BA1 /* Audio */ = {
 			isa = PBXGroup;
 			children = (
+				2DDC02A9400EABF8EFC360EB /* AudioRoute.swift */,
+				D888418B3CC63F8245EAB3AB /* RoutePicker.swift */,
 				F2152E01D482DDB9B9184D06 /* HeadTracker.swift */,
 				DC3FA434CA8F0B4AF9F7D2D6 /* SpatialEngine.swift */,
 			);
@@ -215,6 +221,8 @@
 				5D13039E9FC27449539C64F1 /* AppleMusicSource.swift in Sources */,
 				49BC134DF6C42A6568C330E9 /* ArtworkView.swift in Sources */,
 				AE5701625BC4FCF4B07C6817 /* BatchView.swift in Sources */,
+				45C446C240B0892DD8AB584A /* AudioRoute.swift in Sources */,
+				BFC1E5A7C6946032E2F6F804 /* RoutePicker.swift in Sources */,
 				BEF098C2E1EA1DC5DA961022 /* HeadTracker.swift in Sources */,
 				80904057D911E98008B285A4 /* LibraryView.swift in Sources */,
 				763D29BCC08E3C30931E0F63 /* MusicBrowserView.swift in Sources */,
