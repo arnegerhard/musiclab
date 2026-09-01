@@ -35,6 +35,12 @@ targets:
         NSAppleMusicUsageDescription: >-
           Musiclab reads your playlists so you can choose which songs to split
           into separate tracks.
+        # AirPods report head orientation so the stems stay put in the room
+        # when you turn your head. iOS terminates the app on first use without
+        # this key, even though the feature is optional.
+        NSMotionUsageDescription: >-
+          Musiclab follows the movement of your head so the musicians stay
+          where you placed them in the room as you turn.
         # Spotify sends the OAuth result back to this scheme.
         # Where TestFlight and App Store builds look. Development builds try
         # the Mac first and fall back to this.
@@ -52,6 +58,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Override per build (or in CI) without touching source.
-        MUSICLAB_CLOUD_URL: https://stem.jetsons.info
+        MUSICLAB_CLOUD_URL: https://arnegerhard--musiclab-web.modal.run
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_USER_SCRIPT_SANDBOXING: YES
