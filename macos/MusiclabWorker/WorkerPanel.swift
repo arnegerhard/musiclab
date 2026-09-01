@@ -13,10 +13,18 @@ struct WorkerPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             header
 
-            if status.state == .stopped && WorkerProcess.loadConfiguration() == nil {
+            if !WorkerProcess.isPackaged {
+                noEngine
+            } else if status.state == .stopped && WorkerProcess.loadConfiguration() == nil {
                 notSetUp
             } else {
                 activity
+            }
+
+            if let failure = worker.lastError {
+                Text(failure)
+                    .font(.caption).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider()
@@ -26,7 +34,9 @@ struct WorkerPanel: View {
         .frame(width: 320)
         .task {
             reader.start()
-            if WorkerProcess.loadConfiguration() != nil { worker.start() }
+            if WorkerProcess.isPackaged, WorkerProcess.loadConfiguration() != nil {
+                worker.start()
+            }
         }
     }
 
@@ -89,6 +99,21 @@ struct WorkerPanel: View {
         }
     }
 
+    /// Running straight from Xcode gives the Swift app without the Python that
+    /// does the work: the separation engine is injected by
+    /// packaging/build_worker_app.sh, not by the Xcode target. Everything here
+    /// would otherwise look normal while nothing could ever run.
+    private var noEngine: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("No separation engine in this build.")
+                .font(.callout).foregroundStyle(.orange)
+            Text("This is the interface on its own. Build the full app with "
+                 + "packaging/build_worker_app.sh and open it from dist/.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var notSetUp: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("This Mac is not paired yet.")
@@ -100,7 +125,7 @@ struct WorkerPanel: View {
 
     private var controls: some View {
         HStack {
-            if WorkerProcess.loadConfiguration() != nil {
+            if WorkerProcess.isPackaged, WorkerProcess.loadConfiguration() != nil {
                 Button(worker.isRunning ? "Pause" : "Resume") {
                     worker.isRunning ? worker.stop() : worker.start()
                 }
