@@ -15,6 +15,8 @@ struct PlayerView: View {
     /// the track was standing in for this, which dismissed the loading screen
     /// before the part worth waiting for had started.
     @State private var ready = false
+    /// Held so opening the sheet twice does not start two of them.
+    @State private var loadTask: Task<Void, Never>?
     @State private var failed: String?
     @State private var elapsed: TimeInterval = 0
     @State private var scrubbing = false
@@ -58,7 +60,14 @@ struct PlayerView: View {
                 .accessibilityLabel("Collapse")
             }
         }
-        .task { await load() }
+        // Deliberately not .task: SwiftUI cancels that when the view goes
+        // away, so swiping the player down part way through abandoned the
+        // download. The song had been asked for; finishing it does not
+        // depend on being watched.
+        .onAppear {
+            guard loadTask == nil else { return }
+            loadTask = Task { await load() }
+        }
         .onDisappear {
             // The music carries on. Only the scene is settled up here; the
             // engine and the head tracker belong to the app now, and tearing
