@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import jobs, match, pipeline
+from . import db, jobs, match, pipeline
 from .api_auth import current_user, worker_user
 from .api_auth import router as auth_router
 from .config import DEFAULT_FORMAT, OUT_DIR
@@ -737,6 +737,24 @@ def library(user: dict = Depends(current_user)):
                 }
             )
     return entries
+
+
+@app.delete("/api/auth/account")
+def delete_account(user: dict = Depends(current_user)):
+    """Delete this account and everything separated for it.
+
+    Irreversible, and it takes the songs with it. An app that lets someone
+    create an account has to let them remove one -- Apple requires it, and
+    there was no way to do it at all.
+    """
+    jobs.refresh()
+    directory = OUT_DIR / user["id"]
+    if directory.is_dir():
+        shutil.rmtree(directory, ignore_errors=True)
+    # Sessions, reset codes and pairing codes cascade with the row.
+    db.delete_user(user["id"])
+    jobs.publish()
+    return {"deleted": user.get("email")}
 
 
 @app.delete("/api/library/{slug}")

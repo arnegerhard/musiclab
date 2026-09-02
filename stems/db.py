@@ -276,6 +276,16 @@ def retire_machine(user_id: str, machine: str) -> int:
     return cursor.rowcount
 
 
+def delete_user(user_id: str) -> None:
+    """Remove an account outright.
+
+    Sessions, reset codes and pairing codes all reference the user with
+    ON DELETE CASCADE and foreign keys are on, so they go with it.
+    """
+    connect().execute("DELETE FROM users WHERE id = ?", (user_id,))
+    _commit()
+
+
 def delete_session_by_id(user_id: str, session_id: str) -> bool:
     """Scoped to the owner, so one account cannot revoke another's machine."""
     cursor = connect().execute(
