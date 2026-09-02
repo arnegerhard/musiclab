@@ -727,6 +727,32 @@ def library(user: dict = Depends(current_user)):
     return entries
 
 
+@app.delete("/api/library/{slug}")
+def delete_track(slug: str, user: dict = Depends(current_user)):
+    """Delete a separated track and every stem of it.
+
+    Irreversible, and expensive to undo -- the song has to be separated again
+    from scratch. Confined to this account's own tree, and the slug is checked
+    to be a single path segment so a crafted one cannot climb out of it.
+    """
+    if "/" in slug or "\\" in slug or slug in ("", ".", ".."):
+        raise HTTPException(400, "not a track name")
+
+    jobs.refresh()
+    directory = user_dir(user) / slug
+    if not directory.is_dir():
+        raise HTTPException(404, "no such track")
+    # resolve() before comparing: a symlink inside the tree could otherwise
+    # point the delete somewhere else entirely.
+    root = user_dir(user).resolve()
+    if not directory.resolve().is_relative_to(root):
+        raise HTTPException(400, "not a track name")
+
+    shutil.rmtree(directory, ignore_errors=True)
+    jobs.publish()
+    return {"deleted": slug}
+
+
 @app.get("/api/library/{slug}")
 def library_entry(slug: str, user: dict = Depends(current_user)):
     return json.loads((_job_dir(user, slug) / "manifest.json").read_text())

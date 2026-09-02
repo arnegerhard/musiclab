@@ -83,6 +83,22 @@ final class StemsClient {
         return json["service"] as? String == "stems"
     }
 
+    /// Delete a track and every stem of it, on the server and on this device.
+    ///
+    /// The device copy matters as much as the server's: stems are downloaded
+    /// rather than streamed, so a deleted song leaves a few hundred megabytes
+    /// behind in the cache if only the server is told.
+    func delete(slug: String) async throws {
+        guard let baseURL else { throw ClientError.notConnected }
+        var request = self.request(baseURL.appendingPathComponent("api/library/\(slug)"))
+        request.httpMethod = "DELETE"
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        // 404 means it is already gone, which is what was wanted.
+        guard code == 200 || code == 404 else { throw ClientError.badResponse(code) }
+        try? FileManager.default.removeItem(at: localDirectory(for: slug))
+    }
+
     func library() async throws -> [LibraryEntry] {
         try await get("api/library")
     }

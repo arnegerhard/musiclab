@@ -4,9 +4,13 @@ struct LibraryView: View {
     @Environment(StemsClient.self) private var client
     @Environment(Account.self) private var account
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(SpatialEngine.self) private var engine
     @State private var entries: [LibraryEntry] = []
     @State private var error: String?
     @State private var loading = true
+    /// Held rather than deleted on the spot: this cannot be undone, and the
+    /// song costs ten minutes of a Mac to make again.
+    @State private var confirming: LibraryEntry?
 
     /// Songs arrive without the phone asking: a Mac finishes one minutes after
     /// it was requested, possibly while this screen is not even on top. There
@@ -27,6 +31,9 @@ struct LibraryView: View {
                     }
                 }
             }
+            .onDelete { offsets in
+                confirming = offsets.first.map { entries[$0] }
+            }
             if let error {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(error).foregroundStyle(.red).font(.callout)
@@ -36,6 +43,21 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
+        .confirmationDialog(
+            confirming.map { "Delete \($0.title)?" } ?? "",
+            isPresented: Binding(get: { confirming != nil },
+                                 set: { if !$0 { confirming = nil } }),
+            titleVisibility: .visible,
+            presenting: confirming
+        ) { entry in
+            Button("Delete song and stems", role: .destructive) {
+                Task { await delete(entry) }
+            }
+            Button("Cancel", role: .cancel) { confirming = nil }
+        } message: { entry in
+            Text("\(entry.stemCount) stems, here and on the server. "
+                 + "Separating it again takes about as long as it did the first time.")
+        }
         .navigationDestination(for: LibraryEntry.self) { PlayerView(entry: $0) }
         .toolbar {
             Menu {
@@ -88,6 +110,19 @@ struct LibraryView: View {
             error = nil
         } catch {
             if !quietly { self.error = error.localizedDescription }
+        }
+    }
+
+    private func delete(_ entry: LibraryEntry) async {
+        confirming = nil
+        // Playing the song that is being deleted: stop, or the engine holds
+        // files that are no longer there.
+        if engine.loadedSlug == entry.slug { engine.teardown() }
+        do {
+            try await client.delete(slug: entry.slug)
+            withAnimation { entries.removeAll { $0.slug == entry.slug } }
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 
