@@ -63,6 +63,24 @@ MUSICLAB_PASSWORD=... modal run modal_app.py::account --email you@example.com
 
 Note the URL it prints — the phone needs it.
 
+### Password reset emails (optional)
+
+Without mail configured, a reset code is printed to the server log rather
+than sent, so a one-person server is never locked out. To send them properly,
+put SMTP credentials in the Modal secret the web container already reads:
+
+```bash
+modal secret create --force musiclab-smtp \
+  SMTP_HOST=smtp.resend.com SMTP_PORT=465 SMTP_USER=resend \
+  SMTP_PASSWORD=re_your_api_key SMTP_FROM=musiclab@your-domain
+```
+
+Any SMTP provider works; the values above are [Resend](https://resend.com),
+whose free tier is far more than a password reset flow needs. Deliverability
+is mostly about the domain vouching for the sender, so add the SPF, DKIM and
+DMARC records the provider gives you to your DNS, and send from your own
+domain rather than a provider address.
+
 ### Build the Mac worker
 
 The worker is what actually separates songs for a deployed server, and the

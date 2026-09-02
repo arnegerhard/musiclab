@@ -223,17 +223,24 @@ def send_email(to: str, subject: str, body: str) -> None:
     message.set_content(body)
 
     context = ssl.create_default_context()
-    if port == 465:
-        with smtplib.SMTP_SSL(host, port, context=context, timeout=20) as server:
-            if user:
-                server.login(user, password or "")
-            server.send_message(message)
-    else:
-        with smtplib.SMTP(host, port, timeout=20) as server:
-            server.starttls(context=context)
-            if user:
-                server.login(user, password or "")
-            server.send_message(message)
+    try:
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, context=context, timeout=20) as server:
+                if user:
+                    server.login(user, password or "")
+                server.send_message(message)
+        else:
+            with smtplib.SMTP(host, port, timeout=20) as server:
+                server.starttls(context=context)
+                if user:
+                    server.login(user, password or "")
+                server.send_message(message)
+    except Exception as exc:
+        # A wrong key or an unreachable relay must not become a 500. Requesting
+        # a reset answers the same whether or not the address has an account,
+        # and a failure here would answer differently -- and lock out the one
+        # person who needs the code. Print it, as an unconfigured server does.
+        print(f"[email failed: {exc}] to {to}: {subject}\n{body}", flush=True)
 
 
 def start_password_reset(email: str) -> None:

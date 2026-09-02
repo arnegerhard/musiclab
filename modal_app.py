@@ -223,6 +223,11 @@ def worker(entry: str, *args) -> None:
     # One container: it owns the SQLite file, and nothing else writes it.
     max_containers=1,
     scaledown_window=300,
+    # Mail credentials live in a secret rather than in ENVIRONMENT, which is
+    # baked into the image: an API key in an image layer is an API key that
+    # travels with every copy of it. Reset codes print to the log until the
+    # secret holds a real host, so the server is never locked out waiting.
+    secrets=[modal.Secret.from_name("musiclab-smtp")],
 )
 @modal.asgi_app()
 def web():
