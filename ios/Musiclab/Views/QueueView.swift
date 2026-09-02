@@ -56,7 +56,7 @@ struct QueueView: View {
         .sheet(item: $reviewing) { job in
             MatchReviewView(job: job) { candidate in
                 Task {
-                    try? await client.confirm(job: job.id, videoId: candidate.videoId)
+                    _ = try? await client.confirm(job: job.id, videoId: candidate.videoId)
                     await queue.refresh()
                 }
             }

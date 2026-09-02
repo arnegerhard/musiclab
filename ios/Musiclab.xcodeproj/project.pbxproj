@@ -32,7 +32,7 @@
 		45C446C240B0892DD8AB584A /* AudioRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDC02A9400EABF8EFC360EB /* AudioRoute.swift */; };
 		BFC1E5A7C6946032E2F6F804 /* RoutePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D888418B3CC63F8245EAB3AB /* RoutePicker.swift */; };
 		9B474F78D6DCD76807D17225 /* SpatialEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC3FA434CA8F0B4AF9F7D2D6 /* SpatialEngine.swift */; };
-		AE5701625BC4FCF4B07C6817 /* BatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B126CE9454BA2DA151142C62 /* BatchView.swift */; };
+		AE5701625BC4FCF4B07C6817 /* MatchReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B126CE9454BA2DA151142C62 /* MatchReviewView.swift */; };
 		BEF098C2E1EA1DC5DA961022 /* HeadTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2152E01D482DDB9B9184D06 /* HeadTracker.swift */; };
 		C024514408F4CE3C9C76989E /* PlaylistModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708B897FF50064B8780F64EF /* PlaylistModels.swift */; };
 		DB1C4804546C9837FA49EE1F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8927DE1196C479F3C889BFB1 /* Assets.xcassets */; };
@@ -72,7 +72,7 @@
 		D93CD43E71868DB1B23962D7 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		AD45343DD8B0761ED7722E03 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		AE2063FBA09D59E106EE30AE /* MusiclabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusiclabApp.swift; sourceTree = "<group>"; };
-		B126CE9454BA2DA151142C62 /* BatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchView.swift; sourceTree = "<group>"; };
+		B126CE9454BA2DA151142C62 /* MatchReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchReviewView.swift; sourceTree = "<group>"; };
 		CAB08C710C0932FDDE0DF0DE /* Musiclab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Musiclab.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2DDC02A9400EABF8EFC360EB /* AudioRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoute.swift; sourceTree = "<group>"; };
 		D888418B3CC63F8245EAB3AB /* RoutePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutePicker.swift; sourceTree = "<group>"; };
@@ -87,7 +87,7 @@
 			children = (
 				6D2CF87C1DFA10DC1B9AF970 /* AddSongView.swift */,
 				762548A90BFE8628DB71EA54 /* ArtworkView.swift */,
-				B126CE9454BA2DA151142C62 /* BatchView.swift */,
+				B126CE9454BA2DA151142C62 /* MatchReviewView.swift */,
 				E4E4844314F8248E8616DC37 /* PairMacView.swift */,
 				5AD237006FE2308B1E39C5F5 /* MiniPlayerBar.swift */,
 				D93CD43E71868DB1B23962D7 /* QueueView.swift */,
@@ -241,7 +241,7 @@
 				484F465D0681AC6BEB539EFA /* AddSongView.swift in Sources */,
 				5D13039E9FC27449539C64F1 /* AppleMusicSource.swift in Sources */,
 				49BC134DF6C42A6568C330E9 /* ArtworkView.swift in Sources */,
-				AE5701625BC4FCF4B07C6817 /* BatchView.swift in Sources */,
+				AE5701625BC4FCF4B07C6817 /* MatchReviewView.swift in Sources */,
 				45C446C240B0892DD8AB584A /* AudioRoute.swift in Sources */,
 				BFC1E5A7C6946032E2F6F804 /* RoutePicker.swift in Sources */,
 				BEF098C2E1EA1DC5DA961022 /* HeadTracker.swift in Sources */,
@@ -295,7 +295,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = info.jetsons.musiclab;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -375,7 +375,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = info.jetsons.musiclab;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
