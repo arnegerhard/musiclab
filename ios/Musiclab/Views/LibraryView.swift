@@ -12,6 +12,7 @@ struct LibraryView: View {
     /// Held rather than deleted on the spot: this cannot be undone, and the
     /// song costs ten minutes of a Mac to make again.
     @State private var confirming: LibraryEntry?
+    @State private var closingAccount = false
 
     /// Songs arrive without the phone asking: a Mac finishes one minutes after
     /// it was requested, possibly while this screen is not even on top. There
@@ -56,6 +57,20 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .confirmationDialog(
+            "Delete \(account.user?.email ?? "this account")?",
+            isPresented: $closingAccount,
+            titleVisibility: .visible
+        ) {
+            Button("Delete account and every song", role: .destructive) {
+                Task { await closeAccount() }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This cannot be undone. Every song separated for this account "
+                 + "is deleted from the server and from this phone, and any "
+                 + "paired Mac stops working for it.")
+        }
+        .confirmationDialog(
             confirming.map { "Delete \($0.title)?" } ?? "",
             isPresented: Binding(get: { confirming != nil },
                                  set: { if !$0 { confirming = nil } }),
@@ -81,6 +96,10 @@ struct LibraryView: View {
                 Button("Disconnect", systemImage: "xmark.circle") {
                     Task { await account.signOut() }
                     client.baseURL = nil
+                }
+                Divider()
+                Button("Delete account", systemImage: "trash", role: .destructive) {
+                    closingAccount = true
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -121,6 +140,17 @@ struct LibraryView: View {
             error = nil
         } catch {
             if !quietly { self.error = error.localizedDescription }
+        }
+    }
+
+    private func closeAccount() async {
+        // Whatever is playing belongs to the account that is going.
+        engine.teardown()
+        nowPlaying.clear()
+        if await account.deleteAccount() {
+            entries = []
+        } else {
+            error = "Could not delete the account. Try again in a moment."
         }
     }
 

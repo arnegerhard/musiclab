@@ -194,6 +194,25 @@ final class Account: NSObject {
         return true
     }
 
+    /// Delete the account and everything separated for it.
+    ///
+    /// Irreversible, and the server takes the songs with it. Apple requires
+    /// an app that can create an account to be able to remove one, and this
+    /// is that.
+    func deleteAccount() async -> Bool {
+        guard let baseURL = client.baseURL, !client.token.isEmpty else { return false }
+        var request = client.request(baseURL.appendingPathComponent("api/auth/account"))
+        request.httpMethod = "DELETE"
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200
+        else { return false }
+        client.clearCache()
+        client.token = ""
+        client.user = nil
+        user = nil
+        return true
+    }
+
     func signOut() async {
         if let baseURL = client.baseURL, !client.token.isEmpty {
             var request = client.request(baseURL.appendingPathComponent("api/auth/logout"))

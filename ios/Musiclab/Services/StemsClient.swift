@@ -137,6 +137,13 @@ final class StemsClient {
         return base.appendingPathComponent("tracks", isDirectory: true)
     }
 
+    /// Throw away every downloaded stem. Used when the account they belong
+    /// to is deleted -- otherwise a few hundred megabytes of a library that no
+    /// longer exists stays on the device.
+    func clearCache() {
+        try? FileManager.default.removeItem(at: cacheRoot)
+    }
+
     func localDirectory(for slug: String) -> URL {
         cacheRoot.appendingPathComponent(slug, isDirectory: true)
     }
