@@ -87,6 +87,8 @@ class BatchRequest(BaseModel):
     split_drums: bool = True
     audio_format: str = DEFAULT_FORMAT
     require_confident: bool = True
+    # Where the separating happens, the same choice a single job carries.
+    destination: str = "mac"
 
 
 class ConfirmRequest(BaseModel):
@@ -667,6 +669,7 @@ def create_batch(request: BatchRequest, user: dict = Depends(current_user)):
                 split_drums=request.split_drums,
                 audio_format=request.audio_format,
                 require_confident=request.require_confident,
+                destination=request.destination,
             ),
             user,
         )

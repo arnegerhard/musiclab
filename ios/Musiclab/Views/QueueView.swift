@@ -6,6 +6,7 @@ struct QueueView: View {
     @Environment(StemsClient.self) private var client
 
     @State private var reviewing: JobStatus?
+    @State private var pairing = false
 
     var body: some View {
         List {
@@ -42,6 +43,16 @@ struct QueueView: View {
             }
         }
         .navigationTitle("Queue")
+        // The machines that do this work belong beside the work, not in the
+        // menu about signing in and out.
+        .toolbar {
+            Button {
+                pairing = true
+            } label: {
+                Label("Macs", systemImage: "desktopcomputer")
+            }
+        }
+        .sheet(isPresented: $pairing) { PairMacView() }
         .sheet(item: $reviewing) { job in
             MatchReviewView(job: job) { candidate in
                 Task {

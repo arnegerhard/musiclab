@@ -1,137 +1,32 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The "+" tab: paste a link, or pick from a connected service.
+/// The "+" tab: gather songs from wherever they come from, then decide once
+/// where they should be separated.
 struct AddSongView: View {
     @Environment(StemsClient.self) private var client
     @Environment(AppleMusicSource.self) private var apple
     @Environment(SpotifySource.self) private var spotify
     @Environment(JobQueue.self) private var queue
+    @Environment(Basket.self) private var basket
 
     @State private var link = ""
-    @State private var added: String?
     @State private var picking = false
-    @State private var uploading: Double?
-    /// Whether this account has a Mac at all. Without one, only the cloud can
-    /// do anything -- and only with a file, since a link still has to be
-    /// fetched from somewhere YouTube will answer.
-    @State private var hasMac = false
-    @AppStorage("separateOn") private var destination = "mac"
-    @State private var error: String?
-    @State private var submitting = false
     @State private var showingSpotifySetup = false
-    @State private var phase = ""
-    @State private var fraction: Double = 0
+    @State private var submitting = false
+    @State private var progress = ""
+    @State private var added: String?
+    @State private var error: String?
+    /// Whether this account has a Mac at all. Without one only the cloud can
+    /// do anything, and only with songs that need no fetching.
+    @State private var hasMac = false
 
     var body: some View {
         List {
-            Section {
-                HStack(spacing: 8) {
-                    TextField("youtube.com/watch?v=…", text: $link)
-                        .onChange(of: link) { _, _ in added = nil }
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                        .submitLabel(.go)
-                        .onSubmit { Task { await separateLink() } }
-                    if link.isEmpty {
-                        Button("Paste") {
-                            link = UIPasteboard.general.string?
-                                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        }
-                        .font(.callout)
-                        .buttonStyle(.bordered)
-                    } else {
-                        Button {
-                            link = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                if submitting {
-                    VStack(spacing: 4) {
-                        ProgressView(value: fraction)
-                            .progressViewStyle(.linear).frame(maxWidth: 200)
-                        Text(phase).font(.caption2).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                } else {
-                    Menu {
-                        Button {
-                            destination = "mac"
-                            Task { await separateLink() }
-                        } label: {
-                            Label("Separate on a Mac", systemImage: "desktopcomputer")
-                        }
-                        .disabled(!hasMac)
-
-                        Button {
-                            destination = "cloud"
-                            Task { await separateLink() }
-                        } label: {
-                            Label("Separate in the cloud ($)", systemImage: "bolt")
-                        }
-                        // A link has to be downloaded by a Mac either way:
-                        // YouTube does not answer the deployment.
-                        .disabled(!hasMac)
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Text("Separate").fontWeight(.medium)
-                            Spacer()
-                        }
-                    }
-                    .disabled(!looksLikeLink)
-                }
-            } header: {
-                Text("Paste a link")
-            } footer: {
-                Text("Any link yt-dlp understands, not only YouTube.")
-            }
-
-            Section {
-                if let fraction = uploading {
-                    VStack(spacing: 4) {
-                        ProgressView(value: fraction).progressViewStyle(.linear)
-                        Text("Uploading…").font(.caption2).foregroundStyle(.secondary)
-                    }
-                } else {
-                    Menu {
-                        Button {
-                            destination = "cloud"
-                            picking = true
-                        } label: {
-                            Label("Separate in the cloud ($)", systemImage: "bolt")
-                        }
-                        Button {
-                            destination = "mac"
-                            picking = true
-                        } label: {
-                            Label("Separate on a Mac", systemImage: "desktopcomputer")
-                        }
-                        .disabled(!hasMac)
-                    } label: {
-                        Label("Choose an audio file", systemImage: "waveform.badge.plus")
-                    }
-                }
-            } header: {
-                Text("Or a file you already have")
-            } footer: {
-                Text(hasMac
-                     ? "MP3, M4A, FLAC, WAV, OGG — whatever it is, it gets "
-                       + "converted. A file needs no Mac if the cloud does the work."
-                     : "MP3, M4A, FLAC, WAV, OGG. This is the only way to "
-                       + "separate anything until a Mac is paired: a link has to "
-                       + "be downloaded by one.")
-            }
-
-            Section("From your music") {
-                appleRow
-                spotifyRow
-            }
+            linkSection
+            fileSection
+            servicesSection
+            if !basket.isEmpty { chosenSection }
 
             if let added {
                 Section {
@@ -139,28 +34,152 @@ struct AddSongView: View {
                         .foregroundStyle(.green).font(.callout)
                 }
             }
-
             if let error {
                 Section { Text(error).foregroundStyle(.red).font(.callout) }
             }
         }
         .navigationTitle("Add a song")
+        .navigationDestination(for: MusicSource.self) { MusicBrowserView(source: $0) }
+        .sheet(isPresented: $showingSpotifySetup) { SpotifySetupView(spotify: spotify) }
         .fileImporter(
             isPresented: $picking,
             allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav, .aiff],
-            allowsMultipleSelection: false
+            allowsMultipleSelection: true
         ) { result in
-            if case let .success(urls) = result, let url = urls.first {
-                Task { await uploadFile(url) }
+            if case let .success(urls) = result {
+                for url in urls where url.startAccessingSecurityScopedResource() {
+                    basket.add(.file(url))
+                }
+                added = nil
             }
         }
+        .safeAreaInset(edge: .bottom) { footer }
         .task { await checkForMac() }
-        .navigationDestination(for: MusicSource.self) { source in
-            MusicBrowserView(source: source)
-        }
-        .sheet(isPresented: $showingSpotifySetup) { SpotifySetupView(spotify: spotify) }
-        .task { if apple.isAuthorised { apple.load() } }
     }
+
+    // MARK: - Ways in
+
+    private var linkSection: some View {
+        Section {
+            HStack(spacing: 8) {
+                TextField("youtube.com/watch?v=…", text: $link)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .submitLabel(.done)
+                    .onSubmit(addLink)
+                if link.isEmpty {
+                    Button("Paste") {
+                        link = UIPasteboard.general.string?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    }
+                    .font(.callout).buttonStyle(.bordered)
+                } else {
+                    Button("Add", action: addLink)
+                        .font(.callout).buttonStyle(.borderedProminent)
+                        .disabled(!looksLikeLink)
+                }
+            }
+        } header: {
+            Text("Paste a link")
+        } footer: {
+            Text(hasMac
+                 ? "Any link yt-dlp understands, not only YouTube."
+                 : "Any link yt-dlp understands — but a link has to be "
+                   + "downloaded by a Mac, and none is paired yet.")
+        }
+    }
+
+    private var fileSection: some View {
+        Section {
+            Button {
+                added = nil
+                picking = true
+            } label: {
+                Label("Choose audio files", systemImage: "waveform.badge.plus")
+            }
+        } header: {
+            Text("Files you already have")
+        } footer: {
+            Text("MP3, M4A, FLAC, WAV, OGG — whatever it is, it gets converted.")
+        }
+    }
+
+    private var servicesSection: some View {
+        Section("From your music") {
+            appleRow
+            spotifyRow
+        }
+    }
+
+    // MARK: - What has been chosen
+
+    private var chosenSection: some View {
+        Section("Ready to separate (\(basket.count))") {
+            ForEach(basket.items) { item in
+                HStack(spacing: 10) {
+                    Image(systemName: item.icon)
+                        .foregroundStyle(.secondary).frame(width: 20)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title).font(.callout).lineLimit(1)
+                        Text(item.subtitle)
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+            .onDelete { basket.remove(atOffsets: $0) }
+        }
+    }
+
+    /// One decision for everything chosen, however it was chosen.
+    @ViewBuilder private var footer: some View {
+        if !basket.isEmpty {
+            VStack(spacing: 8) {
+                if submitting {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text(progress).font(.callout).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Menu {
+                        Button {
+                            Task { await send(to: "mac") }
+                        } label: {
+                            Label("Separate on a Mac", systemImage: "desktopcomputer")
+                        }
+                        .disabled(!hasMac)
+
+                        Button {
+                            Task { await send(to: "cloud") }
+                        } label: {
+                            Label("Separate in the cloud ($)", systemImage: "bolt")
+                        }
+                        // A link cannot be fetched by the deployment, so the
+                        // cloud still needs a Mac to go and get it.
+                        .disabled(basket.needsAMac && !hasMac)
+                    } label: {
+                        Text("Separate \(basket.count) song\(basket.count == 1 ? "" : "s")")
+                            .fontWeight(.medium)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    if !hasMac {
+                        Text(basket.needsAMac
+                             ? "Links need a Mac to download them. Pair one in the Queue tab."
+                             : "No Mac paired, so these will be separated in the cloud.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+            }
+            .padding()
+            .background(.bar)
+        }
+    }
+
+    // MARK: - Rows
 
     @ViewBuilder private var appleRow: some View {
         if apple.isAuthorised {
@@ -194,10 +213,8 @@ struct AddSongView: View {
                     .font(.caption).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            // A saved client ID used to be the end of it: the button above
-            // stopped offering the form and went straight to connecting, so a
-            // wrong ID could be entered once and never corrected.
+            // A saved client ID must always have a way back to the form, or a
+            // typo can be entered once and never corrected.
             if !spotify.clientID.isEmpty {
                 Button("Change client ID") { showingSpotifySetup = true }
                     .font(.callout)
@@ -210,7 +227,15 @@ struct AddSongView: View {
         return text.contains(".") && !text.contains(" ")
     }
 
-    /// Whether any Mac is paired to this account.
+    private func addLink() {
+        guard looksLikeLink else { return }
+        basket.add(.link(link.trimmingCharacters(in: .whitespaces)))
+        link = ""
+        added = nil
+    }
+
+    // MARK: - Handing it all over
+
     private func checkForMac() async {
         guard let url = client.baseURL?.appendingPathComponent("api/auth/pairings")
         else { return }
@@ -219,59 +244,51 @@ struct AddSongView: View {
               let list = try? JSONSerialization.jsonObject(with: data) as? [Any]
         else { return }
         hasMac = !list.isEmpty
-        // With no Mac, a file separated in the cloud is the only thing that
-        // works, so do not leave the choice pointing somewhere impossible.
-        if !hasMac { destination = "cloud" }
     }
 
-    /// Send a file the person already has, and let the server work out what
-    /// format it is in.
-    private func uploadFile(_ url: URL) async {
-        error = nil
-        added = nil
-        // A file from the document picker is only readable inside this.
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-
-        uploading = 0
-        defer { uploading = nil }
-        do {
-            _ = try await client.upload(
-                file: url,
-                title: url.deletingPathExtension().lastPathComponent,
-                destination: destination,
-                progress: { uploading = $0 }
-            )
-            added = destination == "cloud"
-                ? "Uploaded — separating in the cloud"
-                : "Uploaded — waiting for a Mac"
-            await queue.refresh()
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    /// Hand the song over and stay here.
-    ///
-    /// This screen used to push into the progress view, which made adding two
-    /// songs in a row a matter of navigating back out of something. The queue
-    /// is a tab of its own now, so this can go back to being the place where
-    /// songs are added.
-    private func separateLink() async {
+    /// Everything in the basket, in one go, to one place.
+    private func send(to destination: String) async {
         submitting = true
         error = nil
-        defer { submitting = false; phase = ""; fraction = 0 }
+        added = nil
+        defer { submitting = false; progress = "" }
+
+        let links = basket.links
+        let files = basket.files
+        let tracks = basket.tracks
+        var sent = 0
+
         do {
-            phase = "Sending to the server"
-            let title = link.trimmingCharacters(in: .whitespaces)
-            _ = try await client.separate(link: title, destination: destination)
-            link = ""
-            added = destination == "cloud"
-                ? "Added — a Mac will fetch it, then the cloud separates"
-                : "Added to the queue"
+            for (index, link) in links.enumerated() {
+                progress = "Sending link \(index + 1) of \(links.count)…"
+                _ = try await client.separate(link: link, destination: destination)
+                sent += 1
+            }
+            for (index, file) in files.enumerated() {
+                progress = "Uploading file \(index + 1) of \(files.count)…"
+                _ = try await client.upload(
+                    file: file,
+                    title: file.deletingPathExtension().lastPathComponent,
+                    destination: destination
+                )
+                sent += 1
+            }
+            if !tracks.isEmpty {
+                progress = "Sending \(tracks.count) song\(tracks.count == 1 ? "" : "s")…"
+                _ = try await client.separate(tracks: tracks, destination: destination)
+                sent += tracks.count
+            }
+            basket.releaseFiles()
+            basket.clear()
+            added = "\(sent) song\(sent == 1 ? "" : "s") queued "
+                + (destination == "cloud" ? "for the cloud" : "for a Mac")
             await queue.refresh()
         } catch {
-            self.error = error.localizedDescription
+            // Whatever went over is queued; what is left stays in the basket
+            // so it is obvious what still needs sending.
+            self.error = sent == 0
+                ? error.localizedDescription
+                : "Queued \(sent), then: \(error.localizedDescription)"
         }
     }
 }

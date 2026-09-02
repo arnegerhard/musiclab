@@ -202,6 +202,7 @@ extension StemsClient {
         let tracks: [PlaylistTrack]
         let audio_format: String
         let require_confident: Bool
+        let destination: String
     }
     struct BatchReply: Decodable { let id: String; let jobs: [String] }
     struct BatchStatus: Decodable { let id: String; let jobs: [JobStatus] }
@@ -216,12 +217,16 @@ extension StemsClient {
     }
 
     func separate(
-        tracks: [PlaylistTrack], format: String = "flac", requireConfident: Bool = true
+        tracks: [PlaylistTrack],
+        format: String = "flac",
+        requireConfident: Bool = true,
+        destination: String = "mac"
     ) async throws -> BatchReply {
         try await post(
             "api/batch",
             body: BatchBody(
-                tracks: tracks, audio_format: format, require_confident: requireConfident
+                tracks: tracks, audio_format: format,
+                require_confident: requireConfident, destination: destination
             )
         )
     }

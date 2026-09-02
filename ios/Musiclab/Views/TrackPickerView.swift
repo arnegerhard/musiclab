@@ -13,13 +13,14 @@ struct TrackPickerView: View {
     @Environment(StemsClient.self) private var client
 
     @Environment(JobQueue.self) private var queue
+    @Environment(Basket.self) private var basket
+    @Environment(\.dismiss) private var dismiss
     @Environment(AppleMusicSource.self) private var apple
     @Environment(SpotifySource.self) private var spotify
 
     @State private var tracks: [PlaylistTrack] = []
     @State private var selected: Set<String> = []
     @State private var loading = true
-    @State private var queued = false
     @State private var error: String?
 
     var body: some View {
@@ -35,10 +36,6 @@ struct TrackPickerView: View {
                     TrackRow(track: track, selected: selected.contains(track.id))
                 }
                 .buttonStyle(.plain)
-            }
-            if queued {
-                Label("Added to the queue", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.callout)
             }
             if let error {
                 Text(error).foregroundStyle(.red).font(.callout)
@@ -62,16 +59,14 @@ struct TrackPickerView: View {
     @ViewBuilder private var footer: some View {
         if !selected.isEmpty {
             VStack(spacing: 6) {
-                Button {
-                    Task { await separate() }
-                } label: {
-                    Text("Separate \(selected.count) song\(selected.count == 1 ? "" : "s")")
+                Button(action: collect) {
+                    Text("Add \(selected.count) song\(selected.count == 1 ? "" : "s")")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 // Separation is slow and runs one at a time, so an honest
                 // estimate up front beats a surprise later.
-                Text("Roughly \(estimate) on the Mac, one song at a time.")
+                Text("Roughly \(estimate) on a Mac, one song at a time.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             .padding()
@@ -103,18 +98,14 @@ struct TrackPickerView: View {
         }
     }
 
-    /// Queue the selection and say so, rather than navigating into a
-    /// progress screen. Watching happens in the Queue tab now.
-    private func separate() async {
-        do {
-            _ = try await client.separate(
-                tracks: tracks.filter { selected.contains($0.id) }
-            )
-            selected = []
-            queued = true
-            await queue.refresh()
-        } catch {
-            self.error = error.localizedDescription
-        }
+    /// Put the selection in the basket and go back.
+    ///
+    /// Nothing is sent from here any more: where these get separated is one
+    /// decision made on the Add screen, alongside whatever else was chosen
+    /// from a link, a file, or the other service.
+    private func collect() {
+        basket.add(tracks: tracks.filter { selected.contains($0.id) })
+        selected = []
+        dismiss()
     }
 }
