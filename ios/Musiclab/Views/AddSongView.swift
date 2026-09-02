@@ -131,7 +131,10 @@ struct AddSongView: View {
         }
     }
 
-    /// One decision for everything chosen, however it was chosen.
+    /// Both places to send it, side by side.
+    ///
+    /// A menu hid the choice behind a tap and named only one of the two on
+    /// the button, which made the cheap option look like the only option.
     @ViewBuilder private var footer: some View {
         if !basket.isEmpty {
             VStack(spacing: 8) {
@@ -140,35 +143,45 @@ struct AddSongView: View {
                         ProgressView().controlSize(.small)
                         Text(progress).font(.callout).foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity)
                 } else {
-                    Menu {
+                    Text("\(basket.count) song\(basket.count == 1 ? "" : "s") ready — separate them")
+                        .font(.caption).foregroundStyle(.secondary)
+
+                    HStack(spacing: 10) {
                         Button {
                             Task { await send(to: "mac") }
                         } label: {
-                            Label("Separate on a Mac", systemImage: "desktopcomputer")
+                            VStack(spacing: 2) {
+                                Label("On a Mac", systemImage: "desktopcomputer")
+                                    .fontWeight(.medium)
+                                Text("free, slower").font(.caption2).opacity(0.8)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 4)
                         }
+                        .buttonStyle(.borderedProminent)
                         .disabled(!hasMac)
 
                         Button {
                             Task { await send(to: "cloud") }
                         } label: {
-                            Label("Separate in the cloud ($)", systemImage: "bolt")
+                            VStack(spacing: 2) {
+                                Label("On Modal", systemImage: "bolt")
+                                    .fontWeight(.medium)
+                                Text("costs money, fast").font(.caption2).opacity(0.8)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 4)
                         }
-                        // A link cannot be fetched by the deployment, so the
-                        // cloud still needs a Mac to go and get it.
+                        .buttonStyle(.borderedProminent)
+                        // A link cannot be fetched by the deployment, so even
+                        // Modal needs a Mac to go and get it first.
                         .disabled(basket.needsAMac && !hasMac)
-                    } label: {
-                        Text("Separate \(basket.count) song\(basket.count == 1 ? "" : "s")")
-                            .fontWeight(.medium)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
                     }
-                    .buttonStyle(.borderedProminent)
 
                     if !hasMac {
                         Text(basket.needsAMac
                              ? "Links need a Mac to download them. Pair one in the Queue tab."
-                             : "No Mac paired, so these will be separated in the cloud.")
+                             : "No Mac paired, so Modal is the only one that can do this.")
                             .font(.caption2).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
@@ -281,7 +294,7 @@ struct AddSongView: View {
             basket.releaseFiles()
             basket.clear()
             added = "\(sent) song\(sent == 1 ? "" : "s") queued "
-                + (destination == "cloud" ? "for the cloud" : "for a Mac")
+                + (destination == "cloud" ? "for Modal" : "for a Mac")
             await queue.refresh()
         } catch {
             // Whatever went over is queued; what is left stays in the basket

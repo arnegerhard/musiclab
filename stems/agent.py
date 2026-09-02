@@ -372,6 +372,27 @@ class Worker(Agent):
         self.status.idle(songs_done=self._done)
         while True:
             job = self.claim()
+
+            # Nothing to separate here, but there may be something asked for
+            # in the cloud, which still needs a machine on a home connection
+            # to go and download it. One app does both jobs; otherwise
+            # choosing Modal for a link parks work nobody is coming for.
+            if job is None:
+                errand = Agent.claim(self)
+                if errand is not None:
+                    progress(f"fetch {errand['job_id']} for the cloud")
+                    self._job_id = errand["job_id"]
+                    try:
+                        Agent.handle(self, errand, progress)
+                        self._done += 1
+                    except Exception as exc:
+                        progress(f"  failed: {exc}")
+                        self.status.failed(str(exc)[:200])
+                    finally:
+                        self._job_id = ""
+                        self.status.idle(songs_done=self._done)
+                    continue
+
             if job is None:
                 if once:
                     progress("Nothing waiting.")
