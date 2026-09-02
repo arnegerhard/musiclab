@@ -22,10 +22,19 @@ struct AddSongView: View {
     @State private var hasMac = false
 
     var body: some View {
+        // A VStack rather than another safeAreaInset: the mini player already
+        // insets the bottom of this tab, and two of them do not stack -- the
+        // buttons ended up underneath the bar, sliced in half. Laid out as a
+        // sibling, the footer sits above whatever the bar reserves.
+        VStack(spacing: 0) {
         List {
-            linkSection
+            // A link, an Apple Music track and a Spotify track all have to be
+            // downloaded from somewhere that answers a home connection, which
+            // is a paired Mac. Without one they are not slow or awkward, they
+            // are impossible, so they are not offered.
+            if hasMac { linkSection }
             fileSection
-            servicesSection
+            if hasMac { servicesSection } else { noMacSection }
             if !basket.isEmpty { chosenSection }
 
             if let added {
@@ -53,7 +62,6 @@ struct AddSongView: View {
                 added = nil
             }
         }
-        .safeAreaInset(edge: .bottom) { footer }
         // The confirmation says the songs were queued. Once the queue has
         // drained they are not queued any more, they are done -- and a green
         // tick still claiming otherwise is just wrong by then.
@@ -61,6 +69,9 @@ struct AddSongView: View {
             if remaining == 0 { added = nil }
         }
         .task { await checkForMac() }
+
+            footer
+        }
     }
 
     // MARK: - Ways in
@@ -108,6 +119,17 @@ struct AddSongView: View {
             Text("Files you already have")
         } footer: {
             Text("MP3, M4A, FLAC, WAV, OGG — whatever it is, it gets converted.")
+        }
+    }
+
+    private var noMacSection: some View {
+        Section {
+            Label("No Mac is paired", systemImage: "desktopcomputer.trianglebadge.exclamationmark")
+                .foregroundStyle(.orange).font(.callout)
+        } footer: {
+            Text("Links, Apple Music and Spotify all need a Mac to download "
+                 + "the audio — the cloud is refused by YouTube. Pair one in "
+                 + "the Queue tab, or separate files you already have.")
         }
     }
 
@@ -181,18 +203,19 @@ struct AddSongView: View {
                         .font(.caption).foregroundStyle(.secondary)
 
                     HStack(spacing: 10) {
-                        Button {
-                            Task { await send(to: "mac") }
-                        } label: {
-                            VStack(spacing: 2) {
-                                Label("On a Mac", systemImage: "desktopcomputer")
-                                    .fontWeight(.medium)
-                                Text("free, slower").font(.caption2).opacity(0.8)
+                        if hasMac {
+                            Button {
+                                Task { await send(to: "mac") }
+                            } label: {
+                                VStack(spacing: 2) {
+                                    Label("On a Mac", systemImage: "desktopcomputer")
+                                        .fontWeight(.medium)
+                                    Text("free, slower").font(.caption2).opacity(0.8)
+                                }
+                                .frame(maxWidth: .infinity).padding(.vertical, 4)
                             }
-                            .frame(maxWidth: .infinity).padding(.vertical, 4)
+                            .buttonStyle(.borderedProminent)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!hasMac)
 
                         Button {
                             Task { await send(to: "cloud") }
@@ -205,17 +228,6 @@ struct AddSongView: View {
                             .frame(maxWidth: .infinity).padding(.vertical, 4)
                         }
                         .buttonStyle(.borderedProminent)
-                        // A link cannot be fetched by the deployment, so even
-                        // Modal needs a Mac to go and get it first.
-                        .disabled(basket.needsAMac && !hasMac)
-                    }
-
-                    if !hasMac {
-                        Text(basket.needsAMac
-                             ? "Links need a Mac to download them. Pair one in the Queue tab."
-                             : "No Mac paired, so Modal is the only one that can do this.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
                     }
                 }
             }
