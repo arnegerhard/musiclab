@@ -5,6 +5,7 @@ struct RootView: View {
     @Environment(Account.self) private var account
     @Environment(JobQueue.self) private var queue
     @Environment(NowPlaying.self) private var nowPlaying
+    @Environment(SpatialEngine.self) private var engine
     @Environment(\.scenePhase) private var scenePhase
     @State private var checkedSavedServer = false
 
@@ -50,7 +51,22 @@ struct RootView: View {
                             .presentationDragIndicator(.visible)
                     }
                 }
-                .task { queue.begin(with: client) }
+                .task {
+                    queue.begin(with: client)
+                    nowPlaying.wireRemoteCommands(engine: engine, client: client)
+                }
+                // The system keeps its own clock from the rate and the
+                // elapsed time, so this only has to speak when something
+                // actually changes.
+                .onChange(of: nowPlaying.entry?.slug) { _, _ in
+                    nowPlaying.publish(engine: engine, client: client)
+                }
+                .onChange(of: engine.isPlaying) { _, _ in
+                    nowPlaying.publish(engine: engine, client: client)
+                }
+                .onChange(of: engine.loadedSlug) { _, _ in
+                    nowPlaying.publish(engine: engine, client: client)
+                }
             }
         }
         .onChange(of: client.baseURL) { _, url in

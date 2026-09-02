@@ -313,6 +313,46 @@ def _repair_slugs() -> list[str]:
     return renamed
 
 
+@app.function(image=image, volumes={DATA_DIR: data}, timeout=900)
+def _backfill_covers() -> list[str]:
+    """Fetch a cover for every track separated before covers existed."""
+    import json
+    from pathlib import Path
+
+    from stems.download import fetch_cover
+
+    done = []
+    for manifest_path in Path(f"{DATA_DIR}/out").glob("*/*/manifest.json"):
+        folder = manifest_path.parent
+        if (folder / "cover.jpg").exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except Exception:
+            continue
+        video_id = manifest.get("video_id")
+        if not video_id:
+            continue
+        # The stored thumbnail url is long gone for old tracks, but YouTube
+        # serves a predictable one per video id.
+        for name in ("maxresdefault", "hqdefault"):
+            url = f"https://i.ytimg.com/vi/{video_id}/{name}.jpg"
+            if fetch_cover(url, folder / "cover.jpg"):
+                done.append(f"{folder.name} <- {name}")
+                break
+    data.commit()
+    return done
+
+
+@app.local_entrypoint()
+def covers():
+    """Fetch covers for tracks that predate them: `modal run modal_app.py::covers`"""
+    found = _backfill_covers.remote()
+    for line in found:
+        print(line)
+    print(f"{len(found)} covers added")
+
+
 @app.local_entrypoint()
 def repair():
     """Fix track names that cannot be requested: `modal run modal_app.py::repair`"""

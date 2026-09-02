@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import urllib.request
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,8 @@ class Source:
     duration: float
     webpage_url: str
     video_id: str
+    # Where the cover image can be fetched from, when the source had one.
+    thumbnail_url: str = ""
 
 
 def slugify(value: str, limit: int = 60) -> str:
@@ -37,6 +40,27 @@ def slugify(value: str, limit: int = 60) -> str:
     # A title with nothing ASCII in it at all still gets a usable name; the
     # video id appended by the caller keeps it unique.
     return value[:limit].strip("-").lower() or "track"
+
+
+def fetch_cover(url: str, destination: Path) -> bool:
+    """Save the cover image beside the stems.
+
+    Only ever a nicety: a track with no cover plays exactly as well, so every
+    failure here is swallowed. It is what the lock screen shows, and a lock
+    screen is mostly picture.
+    """
+    if not url:
+        return False
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "Musiclab"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = response.read(4 << 20)
+        if not data:
+            return False
+        destination.write_bytes(data)
+        return True
+    except Exception:
+        return False
 
 
 def adopt(audio: Path, dest_dir: Path, metadata: dict) -> Source:
@@ -145,4 +169,5 @@ def fetch(url: str, dest_dir: Path, progress=None) -> Source:
         duration=float(info.get("duration") or 0.0),
         webpage_url=info.get("webpage_url") or url,
         video_id=info.get("id") or "",
+        thumbnail_url=info.get("thumbnail") or "",
     )

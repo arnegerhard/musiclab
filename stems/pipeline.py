@@ -228,8 +228,15 @@ def run(
     if source.path.exists():
         source.path.unlink()
 
+    # The cover, if the source had one. Fetched here rather than on the phone
+    # so it is stored with the stems and every device gets the same picture.
+    cover = "cover.jpg" if download.fetch_cover(
+        getattr(source, "thumbnail_url", ""), job_dir / "cover.jpg"
+    ) else None
+
     manifest = {
         "title": source.title,
+        "artwork": cover,
         "uploader": source.uploader,
         "duration": source.duration,
         "url": source.webpage_url,

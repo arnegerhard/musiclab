@@ -20,7 +20,21 @@ struct MiniPlayerBar: View {
                     .tint(.accentColor)
                     .frame(height: 2)
 
-                HStack(spacing: 14) {
+                HStack(spacing: 12) {
+                    // The same picture the lock screen is showing.
+                    Group {
+                        if let cover = nowPlaying.artwork {
+                            Image(uiImage: cover).resizable().scaledToFill()
+                        } else {
+                            Image(systemName: "music.note")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Color.secondary.opacity(0.15))
+                        }
+                    }
+                    .frame(width: 36, height: 36)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+
                     VStack(alignment: .leading, spacing: 1) {
                         Text(entry.title).font(.callout).lineLimit(1)
                         Text(engine.isPlaying ? clock(elapsed) : "Paused")

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Observation
 
 /// Talks to the stems server on the Mac and caches stems on the device.
@@ -97,6 +98,28 @@ final class StemsClient {
         // 404 means it is already gone, which is what was wanted.
         guard code == 200 || code == 404 else { throw ClientError.badResponse(code) }
         try? FileManager.default.removeItem(at: localDirectory(for: slug))
+    }
+
+    /// The cover for a track, cached beside its stems.
+    ///
+    /// Wanted by the lock screen and the bar above the tabs, so it is fetched
+    /// once and kept rather than pulled down every time a song starts.
+    func artwork(for entry: LibraryEntry) async -> UIImage? {
+        guard let relative = entry.artwork, let baseURL else { return nil }
+        let cached = localDirectory(for: entry.slug).appendingPathComponent("cover.jpg")
+        if let data = try? Data(contentsOf: cached), let image = UIImage(data: data) {
+            return image
+        }
+        let remote = baseURL.appendingPathComponent("files/\(entry.slug)/\(relative)")
+        guard let (data, response) = try? await URLSession.shared.data(for: request(remote)),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let image = UIImage(data: data)
+        else { return nil }
+        try? FileManager.default.createDirectory(
+            at: localDirectory(for: entry.slug), withIntermediateDirectories: true
+        )
+        try? data.write(to: cached)
+        return image
     }
 
     func library() async throws -> [LibraryEntry] {

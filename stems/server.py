@@ -722,6 +722,13 @@ def library(user: dict = Depends(current_user)):
                     "uploader": manifest.get("uploader", ""),
                     "duration": manifest.get("duration", 0),
                     "stem_count": len(manifest.get("stems", [])),
+                    # Checked on disk rather than trusted from the manifest:
+                    # tracks separated before covers existed say nothing, and
+                    # a backfill may have added one since.
+                    "artwork": (
+                        "cover.jpg"
+                        if (manifest_path.parent / "cover.jpg").exists() else None
+                    ),
                 }
             )
     return entries
