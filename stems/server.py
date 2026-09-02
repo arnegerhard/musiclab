@@ -103,6 +103,12 @@ def _append_log(job_id: str, message: str):
     jobs.store.append_log(job_id, message)
 
 
+def _leaf_count(stems: list) -> int:
+    """How many stems can actually be placed in the room."""
+    parents = {s.get("parent") for s in stems if s.get("parent")}
+    return sum(1 for s in stems if s.get("name") not in parents)
+
+
 def _public_job(job: dict) -> dict:
     """The stored request is internal plumbing; the client never needs it."""
     return {k: v for k, v in job.items() if k != "request"}
@@ -721,7 +727,11 @@ def library(user: dict = Depends(current_user)):
                     "title": manifest.get("title", manifest_path.parent.name),
                     "uploader": manifest.get("uploader", ""),
                     "duration": manifest.get("duration", 0),
-                    "stem_count": len(manifest.get("stems", [])),
+                    # Leaves only. "vocals" and "drums" are in the manifest
+                    # as the sum of their children, and counting them made
+                    # the library claim fourteen while the mixer showed --
+                    # and the phone fetched -- twelve.
+                    "stem_count": _leaf_count(manifest.get("stems", [])),
                     # Checked on disk rather than trusted from the manifest:
                     # tracks separated before covers existed say nothing, and
                     # a backfill may have added one since.

@@ -271,8 +271,13 @@ struct PlayerView: View {
                 return
             }
 
-            status = "Fetching \(track.leafStems.count) stems…"
-            let urls = client.isDownloaded(slug: entry.slug, stems: track.leafStems)
+            // Ask before announcing. Saying "fetching" for a song already on
+            // the device makes opening it look like downloading it again.
+            let cached = client.isDownloaded(slug: entry.slug, stems: track.leafStems)
+            status = cached
+                ? "Opening…"
+                : "Fetching \(track.leafStems.count) stems…"
+            let urls = cached
                 ? client.localURLs(slug: entry.slug, stems: track.leafStems)
                 : try await client.download(slug: entry.slug, stems: track.leafStems)
 
