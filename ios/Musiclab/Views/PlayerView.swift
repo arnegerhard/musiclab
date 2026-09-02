@@ -194,6 +194,23 @@ struct PlayerView: View {
                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
+
+            // The app's own level. Seven stems summed into one room can be
+            // hotter than an ordinary track, and the buttons on the side of
+            // the phone are a blunt instrument for that.
+            HStack(spacing: 10) {
+                Image(systemName: "speaker.fill")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Slider(
+                    value: Binding(
+                        get: { Double(engine.volume) },
+                        set: { engine.volume = Float($0) }
+                    ),
+                    in: 0...1
+                )
+                Image(systemName: "speaker.wave.3.fill")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal)
     }

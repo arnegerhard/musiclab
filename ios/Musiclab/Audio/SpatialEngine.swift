@@ -31,6 +31,20 @@ final class SpatialEngine {
     /// behind can be rebuilt from here.
     private(set) var loadedTrack: Track?
     private(set) var loadedScene: SpatialScene?
+
+    /// How loud, on top of whatever the phone's own volume is.
+    ///
+    /// The app's own level rather than the system's: fourteen stems summed
+    /// into one room can be a good deal hotter than an ordinary track, and
+    /// this is the knob for that, independent of the buttons on the side of
+    /// the phone. Remembered, because it is a property of the mix rather than
+    /// of this sitting.
+    var volume: Float = Float(UserDefaults.standard.object(forKey: "mixVolume") as? Double ?? 1) {
+        didSet {
+            engine.mainMixerNode.outputVolume = volume
+            UserDefaults.standard.set(Double(volume), forKey: "mixVolume")
+        }
+    }
     private var seekOffset: TimeInterval = 0
     private var pausedAt: TimeInterval = 0
 
@@ -67,6 +81,7 @@ final class SpatialEngine {
 
         engine.attach(environment)
         engine.connect(environment, to: engine.mainMixerNode, format: nil)
+        engine.mainMixerNode.outputVolume = volume
 
         // Binaural rendering assumes two ears close together. Sent to the
         // phone speaker it smears the mix instead of placing it, so follow
