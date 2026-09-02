@@ -1,598 +1,167 @@
-# stems
+# Musiclab
 
-Paste a YouTube link, get the song back as separate tracks you can solo, mute,
-and download — as a local web app or a CLI.
+Splits a song into fourteen separate tracks and lets you stand them around a
+room on your phone.
 
-## What you actually get
+---
 
-The separation runs as a cascade: split the mix, then split the splits.
+## 1. Installing it
 
-```
-mix
-├── vocals ──────┬── lead_vocal
-│                └── backing_vocals      (all stacked harmonies together)
-├── drums ───────┬── kick
-│                ├── snare
-│                ├── toms
-│                ├── hihat
-│                ├── ride
-│                └── crash
-├── bass
-├── guitar                               (all guitar layers together)
-├── piano
-└── other                                (brass, strings, synths, everything else)
-```
+Everything here runs on your own machines and your own accounts. There is no
+hosted service to sign up for.
 
-Fourteen tracks. Every parent stem is kept alongside its children, so you can
-A/B a split against the combined version, or fall back to it when a split
-sounds worse than the whole.
+### What you need
 
-### What this cannot do
-
-Being straight about the limits, because the request asked for more than the
-state of the art delivers:
-
-- **Each harmony as its own track.** Not possible. Backing vocals come out as
-  one stacked stem. No released model separates individual harmony lines —
-  they share timbre and pitch space, which is exactly what these models key on.
-- **Each guitar layer separately.** Not possible. All the guitars land in one
-  `guitar` stem, layered as they were in the mix.
-- **Brass apart from strings.** Not possible. There is no brass or strings
-  model; both end up inside `other`.
-
-Everything in the tree above *is* real and works. Anything finer is a research
-problem, not a configuration flag.
-
-Separation is also lossy. Stems carry bleed from neighbouring instruments and
-some smearing artifacts, and quiet parts are hardest. The manifest records a
-reconstruction error — how much of the original survives summing the leaf stems
-back together — as a sanity check.
-
-## Setup
-
-Needs `ffmpeg` and `uv`.
+- A Mac with Apple silicon (M1 or later) — it does the separating.
+- [Homebrew](https://brew.sh), for the three tools below.
+- Xcode, if you want the iPhone app. A paid Apple Developer account is needed
+  to run it on a real phone; the Simulator works without one.
 
 ```bash
-brew install ffmpeg
+brew install ffmpeg uv xcodegen
 ```
 
+### Get the code
+
 ```bash
+git clone https://github.com/arnegerhard/musiclab.git
+cd musiclab
 uv venv --python 3.12 && uv pip install -e .
 ```
 
-Models (about 700 MB total) download themselves on first run and are cached in
-`models/`.
+The separation models are about 1.4 GB. They download themselves the first
+time they are needed and are cached afterwards.
 
-## Use it
-
-The web app — paste a URL, watch it work, then mix in the browser:
-
-Or the CLI:
+### Try it without any of the apps
 
 ```bash
 .venv/bin/python -m stems.cli "https://www.youtube.com/watch?v=..."
 ```
 
-Skip the second-pass splits when you only want the six base stems:
+That writes fourteen files into `out/`. If this is all you want, you can stop
+reading here.
+
+### Choose where the server lives
+
+**On your Mac**, if you only listen at home:
 
 ```bash
-.venv/bin/python -m stems.cli --no-vocal-split --no-drum-split "https://youtu.be/..."
+.venv/bin/python -m stems.cli --add-user you@example.com
+.venv/bin/python -m stems.cli --serve
 ```
 
-## Output
+The phone finds it on the local network by itself.
 
-Each track gets a folder under `out/`:
-
-```
-out/cool-rock-TwsWXrMS7OM/
-├── source.flac         the downloaded mix
-├── manifest.json       stem tree, peak/RMS levels, timings
-├── stems/              the actual output, in your chosen format
-│   ├── lead_vocal.flac
-│   ├── backing_vocals.flac
-│   └── ...
-├── previews/           stereo AAC, only for the browser mixer
-└── spatial/            mono AAC, only for the iOS app
-```
-
-All stems are 44.1 kHz stereo, the same length as the source, so they line up
-on a timeline if you drag them into a DAW.
-
-### Storage format
-
-Separation itself always produces WAV, and levels are measured on that WAV
-before anything is encoded. What lands on disk is up to you:
+**On Modal**, if you want it to work anywhere. Separation can then run on a
+rented GPU, billed by the second:
 
 ```bash
-.venv/bin/python -m stems.cli --formats
+uv pip install modal && modal token new
+modal deploy modal_app.py
+MUSICLAB_PASSWORD=... modal run modal_app.py::account --email you@example.com
 ```
 
-| Format | 14 stems, 5:36 | vs WAV | |
-|---|---|---|---|
-| `wav` | 792 MB | — | uncompressed |
-| `flac` **(default)** | 200 MB | **4.0x** | lossless |
-| `mp3` (320k) | 189 MB | 4.2x | lossy |
-| `m4a` (AAC 256k) | 137 MB | 5.8x | lossy |
-| `m4a-small` (AAC 192k) | 106 MB | 7.5x | lossy |
+Note the URL it prints — the phone needs it.
 
-FLAC is the default because MP3 at 320 kbps costs the same bytes and throws
-information away — and since separation artifacts and lossy artifacts compound,
-stems you might later drag into a DAW are worth keeping intact.
+### Build the Mac worker
+
+The worker is what actually separates songs for a deployed server, and the
+only thing that can download from YouTube: YouTube answers a home connection
+and refuses a datacenter one.
 
 ```bash
-.venv/bin/python -m stems.cli --format m4a "https://youtu.be/..."
+bash packaging/build_worker_app.sh
+open "dist/Musiclab Worker.app"
 ```
 
-Already have a library in another format? Convert it in place:
+It is a single self-contained app — Python, the models and `ffmpeg` are all
+inside it, so nothing has to be installed to run it. It lives in the menu bar.
+Unsigned, so macOS will warn the first time you open it.
+
+### Build the iPhone app
 
 ```bash
-.venv/bin/python -m stems.cli --recompress --format flac
+open ios/Musiclab.xcodeproj
 ```
 
-### The mono sidecar
+Two settings before it will work:
 
-`spatial/` holds a mono AAC copy of every stem. This is not a size saving:
-`AVAudioEnvironmentNode` only spatialises **mono** inputs -- a stereo source is
-passed through unpositioned -- so the app needs a mono asset whatever the
-master format is.
-
-There used to be a third `previews/` tier of stereo AAC for a browser mixer.
-That mixer is gone, and so is the tier.
+- **Signing & Capabilities** — select your team.
+- **Build Settings → `MUSICLAB_CLOUD_URL`** — your Modal URL from above.
 
-## Accounts
+### Pair the two
 
-Every song belongs to an account, and accounts cannot see each other's.
-
-```bash
-.venv/bin/python -m stems.cli --add-user you@example.com   # prompts for a password
-.venv/bin/python -m stems.cli --list-users
-.venv/bin/python -m stems.cli --claim you@example.com      # adopt pre-account tracks
-```
+Open the app, sign in, then **⋯ → Pair a Mac**. An unpaired Mac offers itself
+on the local network; tap it, and both screens show the same six digits. Agree
+on the phone, allow on the Mac, and it is done. Nothing is typed, and the
+Mac never receives your password.
 
-Or just create the account from the app's sign-in screen.
+---
 
-### Signing in
+## 2. What it does
 
-- **Apple.** The app sends Apple's identity token; the server verifies its
-  signature against Apple's published keys and checks the audience is this
-  bundle id, so a token minted for another app will not work. If someone signed
-  up by email and later uses Apple with the same address, the accounts are
-  linked rather than duplicated.
-- **Email and password.** Hashed with `scrypt` from the standard library --
-  memory-hard, per-password salt, no extra dependency.
-- **Sessions** are random bearer tokens; only their SHA-256 is stored, so a
-  copy of the database does not hand over live sessions. The app keeps its
-  token in the keychain.
-- **Worker tokens** are sessions with `scope = worker`. They may claim work,
-  return it, and report a failure. They are refused everywhere else, so a Mac
-  doing separation cannot read the library or touch the account.
+### Fourteen stems, in three passes
 
-### Pairing a Mac
+A song goes through three models in turn, each splitting what the last one
+left:
 
-A helper machine never signs in. The app mints a single-use code
-(`POST /api/auth/pair`, eight characters, ten minutes) which the worker trades
-for its own token (`POST /api/auth/pair/claim`). Claiming deletes the code.
+| Pass | Produces |
+| --- | --- |
+| Six-way split | vocals, drums, bass, guitar, piano, other |
+| Lead vs. backing vocals | lead vocal, backing vocals |
+| Drum kit pieces | kick, snare, toms, hi-hat, ride, crash |
 
-This exists because a worker holding the owner's sign-in was wrong twice over.
-It gave a machine doing CPU work the run of the account, which matters as soon
-as the swarm is more than one Mac. And it locked out Sign in with Apple
-entirely: those accounts have no password, `/api/auth/login` needs one, so
-there was no way for such an account to run a worker at all.
+On an M4 MacBook Air a three-minute song takes something like ten minutes;
+the vocal pass is most of it. A rented GPU is several times quicker, and
+charges by the second.
 
-`GET /api/auth/pairings` lists the paired machines and when each last checked
-in; `DELETE /api/auth/pairings/{id}` revokes one without disturbing the
-others.
+### A room you can arrange
 
-### Password reset
+The phone plays every stem at once as a separate point in space. Drag the
+musicians around a floor plan, pick a room — living room through cathedral —
+and each source gets quieter and more reverberant as you push it away.
 
-`POST /api/auth/reset/request` emails a six-digit code, valid 15 minutes,
-single use, five attempts. Configure mail with `SMTP_HOST`, `SMTP_PORT`,
-`SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`. **Without SMTP the code is printed
-to the server console**, so a one-person server is never locked out.
+With AirPods, head tracking keeps the band still while you turn: turn left and
+the guitarist stays where you put them. Playback continues when you leave the
+screen.
 
-Requesting a reset answers the same whether or not the address has an account,
-and a failed sign-in says "wrong email or password" either way, so neither can
-be used to discover who has an account.
+### Adding songs
 
-### How songs are separated per user
+- **A link** — anything `yt-dlp` understands. Needs a paired Mac to fetch it.
+- **A file you already have** — MP3, M4A, FLAC, WAV, OGG. Converted for you,
+  and the one route that needs no Mac at all.
+- **Apple Music or Spotify** — browse your playlists and pick tracks; the
+  matching song is found and separated.
 
-Tracks live at `out/<user id>/<slug>/`, so accounts are separated on disk
-rather than merely filtered in a query.
+Every song asks where it should be worked on: on a Mac, free and unhurried, or
+in the cloud for money and speed.
 
-The blanket `StaticFiles` mount over the whole output directory is gone: with
-accounts it would have let any signed-in user read any other's songs by
-guessing a path. `/files/{slug}/{path}` now resolves inside the caller's own
-tree, and **the URL carries no user id at all** -- it comes from the session,
-so it cannot be pointed elsewhere. Paths are resolved before the containment
-check, which is what stops `..` and symlinks. Range requests still work, so
-audio still seeks.
+### A queue that tells you the truth
 
-### Do you need a database?
+The Queue tab is badged with what is outstanding and shows each song's stage,
+its progress bar, and which machine has it — the same thing the Mac's own menu
+bar panel is showing. Anything stuck can be cancelled.
 
-Yes, and it is SQLite -- a single file, no server, in the standard library.
-The reason is not scale: the separation worker writes from a background thread
-while request handlers read and write on the event loop, and JSON files would
-need their own locking and could still tear a write.
+### Accounts and machines
 
-## Reaching the server from anywhere
+Songs are private to the account that asked for them. Sign in with an email
+and password or with Apple. Each paired Mac holds a credential of its own,
+good for claiming work and returning it and nothing else, revocable one
+machine at a time from the phone.
 
-Bonjour only works on the local network, so it is for local development only.
-Anywhere else it is off:
+### What it cannot do
 
-```bash
-.venv/bin/python -m stems.cli --serve --no-bonjour      # or STEMS_BONJOUR=0
-```
+Worth knowing before you are disappointed:
 
-### Where the app looks
-
-Always the Mac on this network first, whatever the build: it costs nothing and
-the stems are already on it. The deployed host is the fallback for when the Mac
-is off or you are somewhere else -- it separates faster, on a GPU, but it bills
-by the second.
-
-A remembered address is re-checked at launch and whenever the app returns to
-the foreground, so a Mac that went to sleep or changed address does not strand
-the app. If the server disappears **during** a separation, the progress screen
-notices after three missed polls and says so, rather than spinning on a job
-that is no longer running.
-
-The deployed address is a build setting, so nothing is hardcoded in source:
-
-```bash
-xcodebuild ... MUSICLAB_CLOUD_URL=https://stems.jetsons.info \
-               MUSICLAB_CLOUD_TOKEN=<the STEMS_TOKEN value>
-```
-
-A development build can be made to behave like a shipped one, which is the only
-way to exercise that path before actually shipping:
-
-```bash
-xcrun simctl launch <udid> info.jetsons.musiclab --args -distribution appStore
-```
-
-### The fetch agent
-
-YouTube answers a phone or a home connection and challenges a datacenter with
-"sign in to confirm you're not a bot". Separation on a GPU is unaffected; only
-the *download* is blocked. So a deployed server does not fetch at all. It parks
-the job, and an agent on a residential connection picks it up:
-
-```bash
-.venv/bin/python -m stems.cli --agent https://your-app.modal.run --pair XXXX-XXXX
-```
-
-The agent polls, so the machine running it needs no inbound reachability, no
-port forwarding and no tunnel. It does the YouTube search and the download,
-uploads the audio, and the server carries on from there. Adding songs works
-from anywhere as long as the agent is running somewhere.
-
-It sends the compressed original rather than the WAV it was expanded into --
-a few megabytes instead of tens, and the server re-decodes anyway.
-
-A local server sets nothing and downloads for itself, since it can.
-`STEMS_DELEGATE_FETCH=1` is what turns delegation on, and Modal sets it.
-
-### The worker swarm
-
-A fetch agent gets past YouTube and leaves the separation to the deployment's
-GPU. A **worker** keeps the whole job on its own Mac:
-
-```bash
-.venv/bin/python -m stems.cli --worker https://your-app.modal.run --pair XXXX-XXXX
-```
-
-Both draw from the same queue, so whichever claims first decides where the
-separation happens. Workers announce what they are -- chip, cores, memory,
-whether Metal is available -- and registration doubles as the heartbeat,
-including while a job runs.
-
-**Nothing is replicated.** A worker fetches what it needs, separates, ships the
-stems back and deletes everything. No library lives on a worker, so no user's
-audio ever sits on someone else's hardware.
-
-A worker is another machine, so its archive is untrusted: any member resolving
-outside the job folder, or any link, is refused before extraction.
-
-### Packaging a worker
-
-```bash
-./packaging/build_worker_app.sh
-```
-
-Produces `dist/Musiclab Worker.app`, about 1 GB, that needs **nothing
-installed** -- Python, PyTorch and ffmpeg are all inside.
-
-It lives in the menu bar. The icon is the light: **green when idle, red while
-it works**, orange on a problem, hollow when it is not running. Opening it
-shows the song, what is being done to it, and how far along -- fetching,
-each of the three separation stages, encoding, packing, sending back -- with a
-progress bar. The first run shows the same bar for the ~1.3 GB of models,
-which are fetched up front so a new worker says what it is waiting for rather
-than appearing to hang on its first song.
-
-It asks for a server and a pairing code once, trades the code for this
-machine's own token kept in the login keychain, and keeps the worker running,
-restarting it if the machine sleeps or the network goes away. The account's
-password never reaches it.
-
-The Swift app and the Python worker talk through a status file rather than a
-socket, because either can restart without the other, and a file is still
-there to read when one of them was not running. Writes are atomic, so the UI
-never catches a half-written line.
-
-Models (~1.3 GB) download on first run rather than shipping in the bundle, so
-they are not paid for twice by anyone who already has them. They land in
-`~/Library/Application Support/Musiclab/models`, **not** inside the .app:
-writing into a bundle invalidates its code signature, may not be permitted
-under `/Applications`, and would be thrown away by the next update. A checkout
-still keeps them next to the source, which is convenient while developing.
-
-Two things had to change to make a bundle self-sufficient. `ffmpeg` now comes
-from a wheel, since a stranger's Mac has no Homebrew. And yt-dlp is asked only
-to fetch, never to convert: its audio postprocessor wants both `ffmpeg` and
-`ffprobe` on disk under exactly those names, and the wheel ships neither --
-while the conversion it would have done is the same one an uploaded file
-already goes through.
-
-Verified from a directory outside the checkout, with an empty environment
-(`env -i PATH=/usr/bin:/bin`) and the model cache deleted: fetched the models,
-fetched the song, separated across all three stages on Metal, handed back 14
-stems, and left the bundle untouched.
-
-Testing this from inside the checkout proves nothing -- Python puts the working
-directory on `sys.path`, so `import stems` finds the source tree and the bundle
-is never exercised.
-
-**Containers were the wrong tool here.** Apple's `container` runs Linux in a VM
-through Virtualization.framework, which does not expose the GPU -- the guest
-kernel has no Metal drivers. Measured on the base stage, that costs 0.30x track
-length against 0.54x, and the vocal stage that dominates the runtime would
-likely lose more. A native bundle keeps Metal and is less work than shipping
-Linux images.
-
-### Running it on a GPU instead
-
-`modal_app.py` deploys the same pipeline to Modal, where separation runs on an
-A100 rather than the Mac's GPU.
-
-The client installs into the project venv, so it is not on your PATH unless
-you ask for it separately (`uv tool install modal`):
-
-```bash
-uv pip install modal
-.venv/bin/modal token new                   # once, opens a browser
-.venv/bin/modal deploy modal_app.py
-MUSICLAB_PASSWORD=... .venv/bin/modal run modal_app.py::account --email you@example.com
-```
-
-**Only the web container may write the database.** SQLite lives on a volume,
-and a volume is snapshotted per container: a second container's writes are
-invisible to the web app, and committing from both lets one silently overwrite
-the other's whole file. So account changes go over HTTP, even from the command
-line -- `::account` signs up through the deployment rather than touching the
-file. Anything that writes the database from another Modal function looks like
-it worked and then is not there.
-
-Then point the app at the printed `https://….modal.run` URL.
-
-**The library moves with the compute.** A finished song is ~150 MB of stems,
-and shipping that back to the Mac over a domestic uplink would cost back
-everything the GPU won, so the volume holding the library lives beside the
-worker.
-
-Two containers, because they want different hardware:
-
-| | Hardware | Why |
-|---|---|---|
-| `web` | CPU, one container | Serves the API, owns the SQLite file, parks jobs for the agent |
-| `worker` | A100, up to ten | One song each, so a playlist separates in parallel |
-
-That is the real speed win. A single song is bounded by the model; a
-twenty-song playlist used to run one at a time and now does not.
-
-Since those are separate containers, job state moved out of process memory into
-a `modal.Dict`, and the volume is committed by the worker and reloaded by the
-web app -- `stems/jobs.py` holds both seams, and locally both are no-ops.
-
-Model weights are baked into the image at build time. Downloading 1.3 GB on
-first request instead would put a minute of cold start in front of a job that
-takes about a minute.
-
-### Measured, and not
-
-The stage timings below are measured on an M4; the GPU figures are not. Modal
-was written and type-checked but never deployed, because deploying needs a
-`modal token new` that only you can run.
-
-| Stage | Share of runtime on M4 |
-|---|---|
-| Demucs 6-stem | 11% |
-| **Mel-Band Roformer (lead/backing)** | **65%** |
-| MDX23C (drum kit) | 24% |
-
-The vocal split dominates, so it is what any GPU has to be fast at.
-
-### Where the deployed server lives
-
-Modal. `MUSICLAB_CLOUD_URL` is the `https://….modal.run` address the deploy
-prints, and that is the whole of it -- the Mac is optional once it is up.
-
-A custom domain on Modal needs their Team plan. If you want
-`stem.jetsons.info` on the Starter plan instead, a small proxy in front of the
-`.modal.run` origin does it; a bare CNAME will not, because Modal has no
-certificate for your hostname.
-
-## Adding a song
-
-The **+** tab is the one way in:
-
-- **Paste a link.** Anything yt-dlp understands, not only YouTube. A pasted
-  link becomes a one-song batch, so progress and match confirmation look the
-  same however the song was chosen.
-- **Apple Music**, once the library is authorised: playlists and albums with
-  artwork, plus search across every song by title or artist.
-- **Spotify**, once connected: your playlists, plus Spotify's catalogue search
-  so a song that is in no playlist is still reachable.
-
-Selecting from either service picks the *song*, not its audio -- see below.
-
-## Playlists
-
-The app reads playlists from **Apple Music** and **Spotify** so you can pick
-songs there rather than pasting URLs.
-
-**Neither service will give you audio, and that is not a limitation you can
-engineer around.** Spotify never exposes decoded audio to third-party apps; the
-Web Playback SDK and iOS SDK both play through their own DRM'd player. Apple
-Music streaming is FairPlay-protected — `assetURL` is nil and
-`hasProtectedAsset` is true. Separation needs PCM, so neither can supply it.
-
-Playlists are therefore a **choosing surface**. Pick songs there, and the Mac
-matches each one to a YouTube upload and separates that. What you get is a
-recording of the song, not necessarily the master your service would stream.
-
-### Matching
-
-Match quality is the whole game: the wrong hit means separating a live cut or
-a cover, and you only find out when it sounds wrong. `stems/match.py` scores
-candidates on
-
-- **duration** — the strongest signal, since a cover or live version is rarely
-  within a couple of seconds of the studio take
-- **channel** — `"Artist - Topic"` is label-delivered audio and scores highest;
-  an exact artist channel next. A channel that merely *contains* the artist
-  ("This Is Queen") is treated as a fan upload
-- **title overlap**, after stripping "(2006 Remaster)", "[Official Audio]" and
-  similar noise
-- **penalties** for `live`, `cover`, `karaoke`, `nightcore`, `sped up`,
-  `reaction` and friends — unless you asked for them
-
-Anything scoring below 70 stops and asks rather than guessing:
-
-```
-Yesterday   needs_confirmation   Confirm the match
-            Unsure: "Yesterday (Remastered 2009)" scored 36.0
-```
-
-The app shows the candidates with durations and the reasons behind each score,
-and separation only starts once you pick one.
-
-### Setup
-
-Apple Music needs nothing beyond granting library access on first use. Spotify
-needs a client ID from your own dashboard at
-[developer.spotify.com](https://developer.spotify.com/dashboard), with
-`musiclab://spotify-callback` added as a redirect URI. Sign-in uses Authorisation
-Code with PKCE — no client secret on the phone — and the refresh token goes in
-the keychain.
-
-### Endpoints
-
-| Endpoint | Purpose |
-|---|---|
-| `POST /api/match` | preview what a track would match to |
-| `POST /api/batch` | queue a playlist selection |
-| `GET /api/batch/{id}` | per-track progress |
-| `POST /api/jobs/{id}/confirm` | pick a recording for an uncertain match |
-
-Jobs run one at a time, and each finished track records `matched_from` and
-`playlist_track` in its manifest, so you can always see what was actually
-separated.
-
-## Musiclab: the iOS app
-
-`ios/` is **Musiclab**, a SwiftUI app that puts each stem at a point in a virtual room and
-renders it binaurally, so a song arrives as a band playing around you rather
-than as a stereo image between your ears.
-
-The Mac keeps doing the separation — Demucs and the roformer models are
-PyTorch, and converting them to CoreML is its own project — so the phone is a
-client. The server advertises itself over Bonjour; the app finds it, downloads
-the mono stems, and plays them locally.
-
-```bash
-cd ios && open Musiclab.xcodeproj
-```
-
-Set your signing team in Xcode, then run. On the Mac, start the server — note
-the `cd` back to the repo root, since the line above leaves you in `ios/`:
-
-```bash
-cd /Users/arne/Code/stems && .venv/bin/python -m stems.cli --serve
-```
-
-### How it sounds like a room
-
-Distance is heard as the ratio of dry to reverberant sound far more than as
-loudness — drop only the volume and a stem sounds *quieter*, not *farther*. So
-moving a source updates three things together:
-
-| Distance drives | Via | Perceptual job |
-|---|---|---|
-| Direct gain | environment node's inverse rolloff | Loudness |
-| Reverb send | `reverbBlend` per player | **Distance** |
-| High-frequency loss | `obstruction` per player | Air absorption |
-
-`obstruction` rather than `occlusion` on purpose: it filters the direct path
-while leaving the reverb send alone, which is the "far away" timbre. Occlusion
-would duck the reverb too and fight the distance model's own attenuation.
-
-### Head tracking
-
-With AirPods (Pro / Max / 3rd gen or later), `CMHeadphoneMotionManager` feeds
-head orientation into the listener transform, so turning your head leaves the
-band where it stands. This is what sells the illusion — without it, sources
-tend to collapse inside your head and front/back gets confused. On other
-headphones, or in the simulator, a rotation slider stands in.
-
-### The audio graph
-
-```
-14 x AVAudioPlayerNode (mono) --> AVAudioEnvironmentNode --> output
-        3D position, reverb,          listener transform,
-        obstruction, volume            room reverb, HRTF
-```
-
-Nothing may sit between a player and the environment node: `AVAudioUnitEQ`
-does not adopt `AVAudioMixing`, so inserting one silently costs the source its
-3D position. Every per-source effect therefore has to be a property the
-player itself exposes.
-
-Stems are downloaded rather than streamed, because `AVAudioFile` needs local
-files — and having them local is what allows all fourteen players to be
-scheduled against one shared `AVAudioTime`. That makes them **sample-locked**,
-which the browser mixer never managed; it needed a pre-roll hack to get within
-~12 ms.
-
-### App icon
-
-`ios/musiclab-icon.png` is the source artwork. It is not used directly: iOS
-masks every icon with its own superellipse and shows no transparency, so an
-icon that already has rounded corners and a black surround comes out as a dark
-frame around a smaller, double-rounded icon.
-
-```bash
-cd ios && ../.venv/bin/python make-icon.py musiclab-icon.png
-```
-
-That crops to the artwork, repaints the black surround and its anti-aliased
-rim in the frame's own colour, and writes an opaque 1024x1024 PNG into
-`Musiclab/Assets.xcassets/AppIcon.appiconset/`. Re-run it after replacing the
-artwork, then rebuild.
-
-### Known rough edges
-
-- **Head tracking is unverified on hardware.** The simulator reports no
-  motion, so it has only been exercised through the manual fallback. If the
-  room turns the wrong way when you turn your head, flip `yawSign` in
-  `HeadTracker.swift` — CoreMotion's head frame and the audio environment's
-  listener frame disagree about handedness on some hardware.
-- Discovery occasionally needs the app relaunched if the server starts later.
-- Scenes save to the server per track, but there is no way to keep more than
-  one arrangement per song yet.
-
-## Note
-
-Downloading YouTube audio is against YouTube's Terms of Service, and separated
-stems are derivative works. Fine for practising along with, transcribing, or
-studying a mix you own; the redistribution question is yours to answer.
+- **Harmonies do not separate.** "Backing vocals" is every non-lead voice
+  together, not one track per singer.
+- **Layered guitars stay layered.** Six guitar takes come back as one guitar
+  stem.
+- **Brass and strings** are not separated from each other, or from anything
+  else; they land in "other".
+- **Height is inaudible.** Sources are placed around you convincingly, but
+  moving one up or down does nothing you can hear — binaural rendering carries
+  direction well and elevation badly without a hearing profile matched to your
+  own ears.
+- **Separation is imperfect.** Quiet passages bleed between stems, and cymbals
+  smear. It is very good, not surgical.
