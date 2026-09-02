@@ -344,6 +344,72 @@ def _backfill_covers() -> list[str]:
     return done
 
 
+@app.function(image=image, volumes={DATA_DIR: data}, timeout=900)
+def _trim_kits() -> list[str]:
+    """Fold the drum kit back into one stem on tracks that were split.
+
+    Separation no longer takes the kit apart, but tracks made before that
+    still carry six pieces of it -- in their manifests, on disk, and so in
+    every count the app shows. The pieces are identified by their parent
+    rather than by name: whatever was split out of the drums goes.
+
+    "leaf" and "children" are stored rather than worked out when read, so
+    they are rebuilt from whatever survived. Without that a stem whose
+    children have gone is still marked a parent, and the app plays leaves
+    only -- which is how the drums vanished from the room after the first
+    pass at this.
+    """
+    import json
+    from pathlib import Path
+
+    changed = []
+    for manifest_path in Path(f"{DATA_DIR}/out").glob("*/*/manifest.json"):
+        folder = manifest_path.parent
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except Exception:
+            continue
+
+        before = json.dumps(manifest, sort_keys=True)
+
+        pieces = [s for s in manifest.get("stems", []) if s.get("parent") == "drums"]
+        for piece in pieces:
+            for key in ("file", "spatial"):
+                relative = piece.get(key)
+                if relative:
+                    (folder / relative).unlink(missing_ok=True)
+        manifest["stems"] = [
+            s for s in manifest.get("stems", []) if s.get("parent") != "drums"
+        ]
+
+        surviving = {s["name"] for s in manifest["stems"]}
+        for stem in manifest["stems"]:
+            stem["children"] = [c for c in stem.get("children", []) if c in surviving]
+            stem["leaf"] = not stem["children"]
+
+        manifest["stages"] = [
+            st for st in manifest.get("stages", []) if st.get("key") != "drums"
+        ]
+
+        if json.dumps(manifest, sort_keys=True) == before:
+            continue
+        manifest_path.write_text(json.dumps(manifest, indent=2))
+        note = f"dropped {len(pieces)} kit pieces" if pieces else "repaired leaf flags"
+        changed.append(f"{folder.name}: {note}")
+
+    data.commit()
+    return changed
+
+
+@app.local_entrypoint()
+def trim():
+    """Fold split drum kits back into one stem: `modal run modal_app.py::trim`"""
+    found = _trim_kits.remote()
+    for line in found:
+        print(line)
+    print(f"{len(found)} tracks tidied")
+
+
 @app.local_entrypoint()
 def covers():
     """Fetch covers for tracks that predate them: `modal run modal_app.py::covers`"""
