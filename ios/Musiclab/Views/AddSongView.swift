@@ -9,9 +9,11 @@ struct AddSongView: View {
     @Environment(SpotifySource.self) private var spotify
     @Environment(JobQueue.self) private var queue
     @Environment(Basket.self) private var basket
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var link = ""
     @State private var picking = false
+    @State private var pairing = false
     @State private var showingSpotifySetup = false
     @State private var submitting = false
     @State private var progress = ""
@@ -69,6 +71,19 @@ struct AddSongView: View {
             if remaining == 0 { added = nil }
         }
         .task { await checkForMac() }
+        // Pairing happens elsewhere -- the Queue tab, or the sheet below --
+        // and .task only ever runs once, so this screen went on believing
+        // there was no Mac long after one had been adopted.
+        .onAppear { Task { await checkForMac() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await checkForMac() } }
+        }
+        .sheet(isPresented: $pairing) {
+            PairMacView()
+        }
+        .onChange(of: pairing) { _, showing in
+            if !showing { Task { await checkForMac() } }
+        }
 
             footer
         }
@@ -124,12 +139,24 @@ struct AddSongView: View {
 
     private var noMacSection: some View {
         Section {
-            Label("No Mac is paired", systemImage: "desktopcomputer.trianglebadge.exclamationmark")
-                .foregroundStyle(.orange).font(.callout)
+            Button {
+                pairing = true
+            } label: {
+                HStack {
+                    Label("No Mac is paired",
+                          systemImage: "desktopcomputer.trianglebadge.exclamationmark")
+                        .foregroundStyle(.orange)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .font(.callout)
         } footer: {
             Text("Links, Apple Music and Spotify all need a Mac to download "
-                 + "the audio — the cloud is refused by YouTube. Pair one in "
-                 + "the Queue tab, or separate files you already have.")
+                 + "the audio — the cloud is refused by YouTube. Tap to pair "
+                 + "one, or separate files you already have.")
         }
     }
 
