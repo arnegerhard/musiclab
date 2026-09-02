@@ -72,14 +72,16 @@ put SMTP credentials in the Modal secret the web container already reads:
 ```bash
 modal secret create --force musiclab-smtp \
   SMTP_HOST=smtp.resend.com SMTP_PORT=465 SMTP_USER=resend \
-  SMTP_PASSWORD=re_your_api_key SMTP_FROM=musiclab@your-domain
+  SMTP_PASSWORD=re_your_api_key SMTP_FROM=musiclab@updates.your-domain
 ```
 
 Any SMTP provider works; the values above are [Resend](https://resend.com),
 whose free tier is far more than a password reset flow needs. Deliverability
 is mostly about the domain vouching for the sender, so add the SPF, DKIM and
 DMARC records the provider gives you to your DNS, and send from your own
-domain rather than a provider address.
+domain rather than a provider address. A subdomain kept for this --
+`updates.example.com` -- keeps a bounce or a spam report away from the
+reputation of the address you answer mail on.
 
 ### Build the Mac worker
 
