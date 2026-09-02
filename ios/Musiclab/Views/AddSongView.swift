@@ -54,6 +54,12 @@ struct AddSongView: View {
             }
         }
         .safeAreaInset(edge: .bottom) { footer }
+        // The confirmation says the songs were queued. Once the queue has
+        // drained they are not queued any more, they are done -- and a green
+        // tick still claiming otherwise is just wrong by then.
+        .onChange(of: queue.count) { _, remaining in
+            if remaining == 0 { added = nil }
+        }
         .task { await checkForMac() }
     }
 
