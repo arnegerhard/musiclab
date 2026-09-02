@@ -274,6 +274,29 @@ def benchmark(relative: str = "bench/source.flac") -> str:
     return "\n".join(lines)
 
 
+@app.function(image=image, timeout=120)
+def _models_present() -> list[str]:
+    """What weights the image actually carries, and how big they are."""
+    import os
+    from pathlib import Path
+
+    found = []
+    root = Path(MODEL_DIR)
+    if not root.exists():
+        return ["/models does not exist in the image"]
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and path.stat().st_size > 1_000_000:
+            found.append(f"{path.stat().st_size / 1e6:8.0f} MB  {path.name}")
+    return found or ["/models is empty"]
+
+
+@app.local_entrypoint()
+def models():
+    """`modal run modal_app.py::models` -- what the image ships with."""
+    for line in _models_present.remote():
+        print(" ", line)
+
+
 @app.local_entrypoint()
 def bench():
     """`modal run modal_app.py::bench`"""
