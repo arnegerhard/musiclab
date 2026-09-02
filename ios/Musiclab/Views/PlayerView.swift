@@ -258,6 +258,19 @@ struct PlayerView: View {
     // MARK: - Loading
 
     private func load() async {
+        // Already in the engine: everything this screen needs is here, so
+        // rebuild it now rather than after a round trip to the server. Asking
+        // first meant reopening a song that was already playing sat on
+        // "Loading..." for as long as the manifest took to arrive.
+        if engine.loadedSlug == entry.slug, let known = engine.loadedTrack {
+            track = known
+            if let saved = engine.loadedScene { scene = saved }
+            elapsed = engine.currentTime
+            head.start()
+            ready = true
+            return
+        }
+
         do {
             // A different song: let go of the old one now rather than when
             // the new one is ready. Until this, the engine still held the
@@ -275,20 +288,6 @@ struct PlayerView: View {
             let track = try await client.track(slug: entry.slug)
             self.track = track
 
-            // Already the song in the engine: this is somebody coming back to
-            // watch it, not asking for it again. Reloading would stop it and
-            // start it over from silence.
-            if engine.loadedSlug == entry.slug {
-                scene = await client.scene(slug: entry.slug) ?? scene
-                if scene.placements.isEmpty {
-                    scene.placements = Layout.stage.positions(for: track.leafStems)
-                }
-                elapsed = engine.currentTime
-                head.start()
-                ready = true
-                return
-            }
-
             // Ask before announcing. Saying "fetching" for a song already on
             // the device makes opening it look like downloading it again.
             let cached = client.isDownloaded(slug: entry.slug, stems: track.leafStems)
@@ -305,7 +304,7 @@ struct PlayerView: View {
             }
             self.scene = scene
 
-            try engine.load(slug: entry.slug, stems: track.leafStems, urls: urls)
+            try engine.load(slug: entry.slug, track: track, urls: urls)
             engine.apply(scene)
             head.start()
             ready = true

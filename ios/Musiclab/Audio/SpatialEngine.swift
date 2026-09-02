@@ -26,6 +26,11 @@ final class SpatialEngine {
     /// Which track is loaded. The engine outlives the screen that started it,
     /// so coming back has to be told apart from starting something new.
     private(set) var loadedSlug: String?
+    /// What was loaded, and how it was arranged. Kept so returning to a song
+    /// already playing needs nothing from the server: the screen it left
+    /// behind can be rebuilt from here.
+    private(set) var loadedTrack: Track?
+    private(set) var loadedScene: SpatialScene?
     private var seekOffset: TimeInterval = 0
     private var pausedAt: TimeInterval = 0
 
@@ -56,7 +61,8 @@ final class SpatialEngine {
     // MARK: - Loading
 
     /// Attach one player per stem. `urls` are local files already downloaded.
-    func load(slug: String, stems: [Stem], urls: [String: URL]) throws {
+    func load(slug: String, track: Track, urls: [String: URL]) throws {
+        let stems = track.leafStems
         teardown()
 
         engine.attach(environment)
@@ -90,6 +96,7 @@ final class SpatialEngine {
         }
 
         loadedSlug = slug
+        loadedTrack = track
         loadedStems = stems.compactMap { players[$0.name] != nil ? $0.name : nil }
         clockStem = loadedStems.first
 
@@ -109,6 +116,8 @@ final class SpatialEngine {
         files.removeAll()
         loadedStems.removeAll()
         loadedSlug = nil
+        loadedTrack = nil
+        loadedScene = nil
         duration = 0
         seekOffset = 0
         pausedAt = 0
@@ -117,6 +126,7 @@ final class SpatialEngine {
     // MARK: - Scene
 
     func apply(_ scene: SpatialScene) {
+        loadedScene = scene
         environment.reverbParameters.loadFactoryReverbPreset(scene.room.reverbPreset)
         environment.reverbParameters.level = scene.room.reverbLevel
 
