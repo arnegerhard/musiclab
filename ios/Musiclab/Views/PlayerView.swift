@@ -11,6 +11,10 @@ struct PlayerView: View {
     @State private var track: Track?
     @State private var scene = SpatialScene()
     @State private var status = "Loading…"
+    /// The stems are in the engine, not merely the manifest in hand. Setting
+    /// the track was standing in for this, which dismissed the loading screen
+    /// before the part worth waiting for had started.
+    @State private var ready = false
     @State private var failed: String?
     @State private var elapsed: TimeInterval = 0
     @State private var scrubbing = false
@@ -23,10 +27,17 @@ struct PlayerView: View {
         Group {
             if let failed {
                 ContentUnavailableView("Could not load", systemImage: "exclamationmark.triangle", description: Text(failed))
-            } else if track == nil {
+            } else if !ready {
                 VStack(spacing: 14) {
-                    ProgressView(value: client.downloadProgress)
-                        .progressViewStyle(.linear).frame(maxWidth: 220)
+                    // Fetching the manifest has nothing to measure; fetching
+                    // fourteen stems does. Spin for the first, fill for the
+                    // second, rather than showing an empty bar for both.
+                    if client.downloadProgress > 0 {
+                        ProgressView(value: client.downloadProgress)
+                            .progressViewStyle(.linear).frame(maxWidth: 220)
+                    } else {
+                        ProgressView()
+                    }
                     Text(status).font(.callout).foregroundStyle(.secondary)
                 }
             } else {
@@ -256,10 +267,11 @@ struct PlayerView: View {
                 }
                 elapsed = engine.currentTime
                 head.start()
+                ready = true
                 return
             }
 
-            status = "Fetching stems…"
+            status = "Fetching \(track.leafStems.count) stems…"
             let urls = client.isDownloaded(slug: entry.slug, stems: track.leafStems)
                 ? client.localURLs(slug: entry.slug, stems: track.leafStems)
                 : try await client.download(slug: entry.slug, stems: track.leafStems)
@@ -273,6 +285,7 @@ struct PlayerView: View {
             try engine.load(slug: entry.slug, stems: track.leafStems, urls: urls)
             engine.apply(scene)
             head.start()
+            ready = true
         } catch {
             failed = error.localizedDescription
         }
