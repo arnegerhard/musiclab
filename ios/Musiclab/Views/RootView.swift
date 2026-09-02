@@ -25,25 +25,35 @@ struct RootView: View {
             } else if !account.isSignedIn {
                 NavigationStack { SignInView() }
             } else {
-                // The bar is a sibling below the whole TabView, not an inset
-                // on it or on each tab. An inset only asks the content to
-                // move and a List inside a NavigationStack does not always
-                // listen -- the Add screen's buttons ended up sliced in half
-                // underneath it. Laid out as a row of its own, the TabView
-                // gets the height that is left and nothing can overlap.
-                VStack(spacing: 0) {
-                    TabView {
+                // The bar is a row inside each tab, above that tab's own
+                // content and below nothing but the tab bar.
+                //
+                // Not a safe area inset: an inset on the TabView lands under
+                // the tabs and hides them, and an inset on a NavigationStack
+                // is only a request that a List inside it does not honour --
+                // the Add screen's buttons stayed sliced in half underneath
+                // the bar. A stack row is arithmetic rather than a request.
+                TabView {
+                    VStack(spacing: 0) {
                         NavigationStack { LibraryView() }
-                            .tabItem { Label("Library", systemImage: "square.stack.3d.up") }
-                        NavigationStack { QueueView() }
-                            .tabItem { Label("Queue", systemImage: "clock.arrow.circlepath") }
-                            // Only when there is something to say. A zero
-                            // badge is a permanent little alarm about nothing.
-                            .badge(queue.count == 0 ? 0 : queue.count)
-                        NavigationStack { AddSongView() }
-                            .tabItem { Label("Add", systemImage: "plus.circle.fill") }
+                        MiniPlayerBar()
                     }
-                    MiniPlayerBar()
+                    .tabItem { Label("Library", systemImage: "square.stack.3d.up") }
+
+                    VStack(spacing: 0) {
+                        NavigationStack { QueueView() }
+                        MiniPlayerBar()
+                    }
+                    .tabItem { Label("Queue", systemImage: "clock.arrow.circlepath") }
+                    // Only when there is something to say. A zero badge is a
+                    // permanent little alarm about nothing.
+                    .badge(queue.count == 0 ? 0 : queue.count)
+
+                    VStack(spacing: 0) {
+                        NavigationStack { AddSongView() }
+                        MiniPlayerBar()
+                    }
+                    .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 }
                 // A sheet rather than a cover: swiping it down is the whole
                 // point, and that is what a sheet does for free.
