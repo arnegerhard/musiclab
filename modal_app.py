@@ -290,6 +290,46 @@ def _models_present() -> list[str]:
     return found or ["/models is empty"]
 
 
+@app.function(image=image, gpu=GPU, timeout=600)
+def _time_model_loads() -> list[str]:
+    """How long the weights take to reach the GPU, per model.
+
+    This is the number that decides whether a memory snapshot is worth the
+    machinery: it is what a snapshot would remove from every job.
+    """
+    import logging
+    import time
+
+    from audio_separator.separator import Separator
+
+    from stems import models as model_lookup
+    from stems.config import ALL_STAGES
+
+    out = []
+    started = time.time()
+    separator = Separator(
+        log_level=logging.ERROR, model_file_dir=MODEL_DIR, output_dir="/tmp"
+    )
+    out.append(f"{time.time() - started:6.1f}s  constructing the separator")
+
+    for stage in ALL_STAGES:
+        name = model_lookup.resolve(stage.preferred, stage.model_keywords)
+        if not name:
+            continue
+        mark = time.time()
+        separator.load_model(name)
+        out.append(f"{time.time() - mark:6.1f}s  loading {name}")
+    out.append(f"{time.time() - started:6.1f}s  TOTAL before any audio is touched")
+    return out
+
+
+@app.local_entrypoint()
+def loadtime():
+    """`modal run modal_app.py::loadtime` -- what a snapshot would save."""
+    for line in _time_model_loads.remote():
+        print(" ", line)
+
+
 @app.local_entrypoint()
 def models():
     """`modal run modal_app.py::models` -- what the image ships with."""
