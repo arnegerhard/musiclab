@@ -259,6 +259,15 @@ struct PlayerView: View {
 
     private func load() async {
         do {
+            // A different song: let go of the old one now rather than when
+            // the new one is ready. Until this, the engine still held the
+            // previous track, so pressing play -- here or on the bar --
+            // resumed the song that had just been left behind, while every
+            // label already said the new one.
+            if let loaded = engine.loadedSlug, loaded != entry.slug {
+                engine.teardown()
+            }
+
             try engine.configureSession()
             // Only now does the session know what it is playing through.
             route.refresh()
@@ -300,6 +309,10 @@ struct PlayerView: View {
             engine.apply(scene)
             head.start()
             ready = true
+            if nowPlaying.takeAutoPlay() {
+                engine.play()
+                elapsed = 0
+            }
         } catch {
             failed = error.localizedDescription
         }

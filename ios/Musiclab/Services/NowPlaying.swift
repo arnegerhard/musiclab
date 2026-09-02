@@ -23,10 +23,24 @@ final class NowPlaying {
 
     private var commandsWired = false
 
+    /// Set when a song is chosen that is not the one already loaded, so it
+    /// starts by itself once it is ready. Choosing a song is asking to hear
+    /// it; reopening the one already playing is not.
+    private var pendingAutoPlay = false
+
     func open(_ entry: LibraryEntry) {
-        if entry.slug != self.entry?.slug { artwork = nil }
+        if entry.slug != self.entry?.slug {
+            artwork = nil
+            pendingAutoPlay = true
+        }
         self.entry = entry
         isExpanded = true
+    }
+
+    /// Asked once, by whoever finishes loading the song.
+    func takeAutoPlay() -> Bool {
+        defer { pendingAutoPlay = false }
+        return pendingAutoPlay
     }
 
     func collapse() { isExpanded = false }
