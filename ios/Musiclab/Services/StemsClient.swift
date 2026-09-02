@@ -154,6 +154,14 @@ final class StemsClient {
 
     /// Fetch every stem's mono asset, returning stem name -> local file URL.
     @discardableResult
+    /// Fetch every stem's mono asset, returning stem name -> local file URL.
+    ///
+    /// All at once rather than one after another. The files are small -- a
+    /// three-minute song is about eleven megabytes across seven of them --
+    /// but each request costs several seconds of its own regardless of size,
+    /// so fetching them in turn spent thirty-five seconds waiting and almost
+    /// none of it transferring. Together they take about as long as the
+    /// slowest one.
     func download(slug: String, stems: [Stem]) async throws -> [String: URL] {
         guard let baseURL else { throw ClientError.notConnected }
         let directory = localDirectory(for: slug)
@@ -161,26 +169,42 @@ final class StemsClient {
             at: directory, withIntermediateDirectories: true
         )
 
-        var result: [String: URL] = [:]
-        let targets = stems.compactMap { stem -> (Stem, String)? in
+        let targets = stems.compactMap { stem -> (name: String, spatial: String)? in
             guard let spatial = stem.spatial else { return nil }
-            return (stem, spatial)
+            return (stem.name, spatial)
         }
+        guard !targets.isEmpty else { return [:] }
 
         downloadProgress = 0
-        for (index, (stem, spatial)) in targets.enumerated() {
-            let destination = directory.appendingPathComponent("\(stem.name).m4a")
-            if !FileManager.default.fileExists(atPath: destination.path) {
-                let remote = baseURL.appendingPathComponent("files/\(slug)/\(spatial)")
-                let (temp, response) = try await URLSession.shared.download(for: request(remote))
-                if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                    throw ClientError.badResponse(http.statusCode)
+        var result: [String: URL] = [:]
+        var finished = 0
+
+        try await withThrowingTaskGroup(of: (String, URL).self) { group in
+            for target in targets {
+                let destination = directory.appendingPathComponent("\(target.name).m4a")
+                let remote = baseURL.appendingPathComponent("files/\(slug)/\(target.spatial)")
+                let request = self.request(remote)
+
+                group.addTask {
+                    // Already here from a previous, possibly interrupted, run.
+                    if FileManager.default.fileExists(atPath: destination.path) {
+                        return (target.name, destination)
+                    }
+                    let (temp, response) = try await URLSession.shared.download(for: request)
+                    if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                        throw ClientError.badResponse(http.statusCode)
+                    }
+                    try? FileManager.default.removeItem(at: destination)
+                    try FileManager.default.moveItem(at: temp, to: destination)
+                    return (target.name, destination)
                 }
-                try? FileManager.default.removeItem(at: destination)
-                try FileManager.default.moveItem(at: temp, to: destination)
             }
-            result[stem.name] = destination
-            downloadProgress = Double(index + 1) / Double(targets.count)
+
+            for try await (name, url) in group {
+                result[name] = url
+                finished += 1
+                downloadProgress = Double(finished) / Double(targets.count)
+            }
         }
         return result
     }
