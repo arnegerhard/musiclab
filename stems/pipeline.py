@@ -130,7 +130,7 @@ def run(
     url: str,
     out_dir: Path = OUT_DIR,
     split_vocals: bool = True,
-    split_drums: bool = True,
+    split_drums: bool = False,
     progress=None,
     keep_source: bool = True,
     audio_format: str = DEFAULT_FORMAT,

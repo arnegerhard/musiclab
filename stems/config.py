@@ -60,12 +60,19 @@ FORMATS = {
         lossless=False,
         note="AAC 256k. Roughly six times smaller than WAV.",
     ),
+    "m4a-compact": AudioFormat(
+        key="m4a-compact",
+        extension=".m4a",
+        codec_args=("-c:a", "aac", "-b:a", "128k"),
+        lossless=False,
+        note="AAC 128k. About the size of an ordinary MP3, per stem.",
+    ),
     "m4a-small": AudioFormat(
         key="m4a-small",
         extension=".m4a",
         codec_args=("-c:a", "aac", "-b:a", "192k"),
         lossless=False,
-        note="AAC 192k. Smallest useful option.",
+        note="AAC 192k. A little more room than the default.",
     ),
     "mp3": AudioFormat(
         key="mp3",
@@ -83,7 +90,11 @@ FORMATS = {
     ),
 }
 
-DEFAULT_FORMAT = "flac"
+# Lossless was costing a hundred and sixty megabytes of stems for a
+# five-minute song. These are already-separated parts listened to as points in
+# a room, not masters; a stem now weighs about what an MP3 of the whole song
+# does. Ask for flac explicitly if a DAW is the destination.
+DEFAULT_FORMAT = "m4a-compact"
 
 
 @dataclass(frozen=True)

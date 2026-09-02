@@ -198,9 +198,9 @@ def main(argv=None) -> int:
         help="keep vocals as one stem instead of lead + backing",
     )
     parser.add_argument(
-        "--no-drum-split",
+        "--drum-split",
         action="store_true",
-        help="keep drums as one stem instead of kit pieces",
+        help="split the drums into kit pieces as well (six more stems)",
     )
     parser.add_argument(
         "-f",
@@ -298,7 +298,7 @@ def main(argv=None) -> int:
             args.url,
             out_dir=args.out,
             split_vocals=not args.no_vocal_split,
-            split_drums=not args.no_drum_split,
+            split_drums=args.drum_split,
             progress=_reporter(),
             audio_format=args.format,
         )

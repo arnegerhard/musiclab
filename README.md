@@ -1,7 +1,7 @@
 # Musiclab
 
-Splits a song into fourteen separate tracks and lets you stand them around a
-room on your phone.
+Splits a song into its separate parts and lets you stand them around a room
+on your phone.
 
 ---
 
@@ -100,16 +100,19 @@ Mac never receives your password.
 
 ## 2. What it does
 
-### Fourteen stems, in three passes
+### Seven stems, in two passes
 
-A song goes through three models in turn, each splitting what the last one
+A song goes through two models in turn, the second splitting what the first
 left:
 
 | Pass | Produces |
 | --- | --- |
 | Six-way split | vocals, drums, bass, guitar, piano, other |
 | Lead vs. backing vocals | lead vocal, backing vocals |
-| Drum kit pieces | kick, snare, toms, hi-hat, ride, crash |
+
+Seven stems, each stored at about the size of an MP3 of the whole song. The
+drum kit can be split further into kick, snare, toms and cymbals with
+`--drum-split`, at six more stems and the storage that implies.
 
 On an M4 MacBook Air a three-minute song takes something like ten minutes;
 the vocal pass is most of it. A rented GPU is several times quicker, and
