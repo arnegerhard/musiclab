@@ -65,10 +65,21 @@ final class Basket {
     }
 
     func remove(atOffsets offsets: IndexSet) {
+        for case let .file(url) in offsets.map({ items[$0] }) {
+            url.stopAccessingSecurityScopedResource()
+        }
         items.remove(atOffsets: offsets)
     }
 
-    func clear() { items.removeAll() }
+    func remove(_ item: Item) {
+        if case let .file(url) = item { url.stopAccessingSecurityScopedResource() }
+        items.removeAll { $0.id == item.id }
+    }
+
+    func clear() {
+        releaseFiles()
+        items.removeAll()
+    }
 
     /// Files come from the document picker, which hands over a URL that is
     /// only readable inside a security scope. Held open for as long as the

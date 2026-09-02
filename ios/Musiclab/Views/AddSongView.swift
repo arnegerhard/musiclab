@@ -115,7 +115,7 @@ struct AddSongView: View {
     // MARK: - What has been chosen
 
     private var chosenSection: some View {
-        Section("Ready to separate (\(basket.count))") {
+        Section {
             ForEach(basket.items) { item in
                 HStack(spacing: 10) {
                     Image(systemName: item.icon)
@@ -125,9 +125,35 @@ struct AddSongView: View {
                         Text(item.subtitle)
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
+                    Spacer(minLength: 8)
+                    // A visible control as well as the swipe: a swipe is not
+                    // something you can see, and this is a list people will
+                    // want to correct before spending ten minutes on it.
+                    Button {
+                        withAnimation { basket.remove(item) }
+                        added = nil
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove \(item.title)")
                 }
             }
             .onDelete { basket.remove(atOffsets: $0) }
+        } header: {
+            HStack {
+                Text("Ready to separate (\(basket.count))")
+                Spacer()
+                if basket.count > 1 {
+                    Button("Remove all") {
+                        withAnimation { basket.clear() }
+                        added = nil
+                    }
+                    .font(.caption)
+                    .textCase(nil)
+                }
+            }
         }
     }
 
@@ -291,7 +317,7 @@ struct AddSongView: View {
                 _ = try await client.separate(tracks: tracks, destination: destination)
                 sent += tracks.count
             }
-            basket.releaseFiles()
+            // clear() releases the files it drops.
             basket.clear()
             added = "\(sent) song\(sent == 1 ? "" : "s") queued "
                 + (destination == "cloud" ? "for Modal" : "for a Mac")
