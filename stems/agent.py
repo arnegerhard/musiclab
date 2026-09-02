@@ -267,7 +267,6 @@ class Worker(Agent):
                 uploaded=uploaded,
                 metadata=job.get("metadata"),
                 split_vocals=job.get("split_vocals", True),
-                split_drums=job.get("split_drums", False),
                 audio_format=job.get("audio_format", "flac"),
                 progress=lambda e: self._note(e, progress),
             )

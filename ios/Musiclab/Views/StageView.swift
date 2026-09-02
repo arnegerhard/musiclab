@@ -11,10 +11,13 @@ struct StageView: View {
     let headYaw: Float
     let audibleLevel: (String) -> Double
 
-    /// Parents whose children ride as one puck. A six-piece kit drawn at true
-    /// scale is a pile of overlapping circles nobody can grab, so the kit
-    /// travels together until you ask for the pieces.
-    @State private var collapsed: Set<String> = ["drums"]
+    /// Parents whose children ride as one puck, tapped to break apart.
+    ///
+    /// Nothing starts collapsed. The drum kit used to, because six pieces
+    /// drawn at true scale are a pile of overlapping circles nobody can grab
+    /// -- but the kit is no longer taken apart at all, and lead and backing
+    /// vocals are only two pucks.
+    @State private var collapsed: Set<String> = []
     @State private var dragging: String?
     /// Content bounds in metres, recomputed only between drags. Refitting mid-
     /// drag would slide the floor around under the finger that is moving it.

@@ -113,8 +113,8 @@ def _reconstruction_error(source: Path, leaves: list[Path]) -> float | None:
         return None
 
 
-def selected_stages(vocals: bool = True, drums: bool = True):
-    keys = ["base"] + (["vocals"] if vocals else []) + (["drums"] if drums else [])
+def selected_stages(vocals: bool = True):
+    keys = ["base"] + (["vocals"] if vocals else [])
     return [STAGES_BY_KEY[k] for k in keys]
 
 
@@ -130,7 +130,6 @@ def run(
     url: str,
     out_dir: Path = OUT_DIR,
     split_vocals: bool = True,
-    split_drums: bool = False,
     progress=None,
     keep_source: bool = True,
     audio_format: str = DEFAULT_FORMAT,
@@ -170,7 +169,7 @@ def run(
 
     work_dir = job_dir / ".work"
     stem_dir = job_dir / "stems"
-    stages = selected_stages(split_vocals, split_drums)
+    stages = selected_stages(split_vocals)
 
     # The models emit WAV, and each stage reads the previous stage's output,
     # so separation happens entirely in the work directory. Only the finished

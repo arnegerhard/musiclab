@@ -77,7 +77,9 @@ def resolve(
 # nothing, so progress is inferred from how much the model directory has
 # grown, and that needs a target to divide by. Being a little off makes the
 # bar slightly wrong, which is why the UI says "about".
-EXPECTED_TOTAL_BYTES = 1_400_000_000
+# htdemucs_6s and the karaoke roformer. The kit model that used to
+# make up a third of this is gone with the stage that used it.
+EXPECTED_TOTAL_BYTES = 980_000_000
 
 
 def missing(model_dir) -> list[str]:

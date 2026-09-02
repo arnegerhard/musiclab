@@ -162,19 +162,7 @@ VOCAL_STAGE = Stage(
     note="Splits the vocal stem into the lead line and the stacked harmonies.",
 )
 
-DRUM_STAGE = Stage(
-    key="drums",
-    title="Drum kit pieces",
-    preferred=("MDX23C-DrumSep-aufr33-jarredou.ckpt",),
-    model_keywords=(("drumsep",), ("drum", "sep"), ("mdx23c", "drum")),
-    source="drums",
-    # The kit model labels the hats "HH"; the rest of its names read fine.
-    rename={"hh": "hihat"},
-    optional=True,
-    note="Splits the drum stem into kick, snare, toms, and cymbals.",
-)
-
-ALL_STAGES = (BASE_STAGE, VOCAL_STAGE, DRUM_STAGE)
+ALL_STAGES = (BASE_STAGE, VOCAL_STAGE)
 STAGES_BY_KEY = {s.key: s for s in ALL_STAGES}
 
 # Display order for the mixer, so a track list reads like a session.
@@ -185,14 +173,6 @@ STEM_ORDER = [
     "guitar",
     "piano",
     "bass",
-    "kick",
-    "snare",
-    "toms",
-    "hh",
-    "hihat",
-    "ride",
-    "crash",
-    "cymbals",
     "drums",
     "other",
 ]

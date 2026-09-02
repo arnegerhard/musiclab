@@ -70,7 +70,6 @@ class JobRequest(BaseModel):
     uploaded_path: str | None = None
     uploaded_meta: UploadedTrack | None = None
     split_vocals: bool = True
-    split_drums: bool = False
     audio_format: str = DEFAULT_FORMAT
     # Low-confidence matches stop and ask rather than separating the wrong song.
     require_confident: bool = True
@@ -84,7 +83,6 @@ class JobRequest(BaseModel):
 class BatchRequest(BaseModel):
     tracks: list[PlaylistTrack]
     split_vocals: bool = True
-    split_drums: bool = False
     audio_format: str = DEFAULT_FORMAT
     require_confident: bool = True
     # Where the separating happens, the same choice a single job carries.
@@ -228,8 +226,7 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
             uploaded=uploaded,
             metadata=request.uploaded_meta.model_dump() if request.uploaded_meta else None,
             split_vocals=request.split_vocals,
-            split_drums=request.split_drums,
-            audio_format=request.audio_format,
+                audio_format=request.audio_format,
             progress=progress,
             extra=extra,
         )
@@ -366,7 +363,6 @@ def next_work(worker_id: str = "", user: dict = Depends(worker_user)):
             "metadata": request.get("uploaded_meta"),
             "audio_format": request.get("audio_format", DEFAULT_FORMAT),
             "split_vocals": request.get("split_vocals", True),
-            "split_drums": request.get("split_drums", False),
         }
     return {"job_id": None}
 
@@ -672,7 +668,6 @@ def create_batch(request: BatchRequest, user: dict = Depends(current_user)):
             JobRequest(
                 track=track,
                 split_vocals=request.split_vocals,
-                split_drums=request.split_drums,
                 audio_format=request.audio_format,
                 require_confident=request.require_confident,
                 destination=request.destination,

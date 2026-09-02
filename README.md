@@ -29,7 +29,7 @@ cd musiclab
 uv venv --python 3.12 && uv pip install -e .
 ```
 
-The separation models are about 1.4 GB. They download themselves the first
+The separation models are about 1 GB. They download themselves the first
 time they are needed and are cached afterwards.
 
 ### Try it without any of the apps
@@ -110,9 +110,7 @@ left:
 | Six-way split | vocals, drums, bass, guitar, piano, other |
 | Lead vs. backing vocals | lead vocal, backing vocals |
 
-Seven stems, each stored at about the size of an MP3 of the whole song. The
-drum kit can be split further into kick, snare, toms and cymbals with
-`--drum-split`, at six more stems and the storage that implies.
+Seven stems, each stored at about the size of an MP3 of the whole song.
 
 On an M4 MacBook Air a three-minute song takes something like ten minutes;
 the vocal pass is most of it. A rented GPU is several times quicker, and
