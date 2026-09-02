@@ -20,9 +20,11 @@
 		5D13039E9FC27449539C64F1 /* AppleMusicSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5DFDCDDF9969AA01EB9347C /* AppleMusicSource.swift */; };
 		763D29BCC08E3C30931E0F63 /* MusicBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4995007FDC85DBCC41CEAAF4 /* MusicBrowserView.swift */; };
 		8101ECECC868D927C94C10EF /* PairMacView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4E4844314F8248E8616DC37 /* PairMacView.swift */; };
+		A756E3806572698FE2EFD57E /* MiniPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD237006FE2308B1E39C5F5 /* MiniPlayerBar.swift */; };
 		366C052B27F2FECD258853EB /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93CD43E71868DB1B23962D7 /* QueueView.swift */; };
 		80904057D911E98008B285A4 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD45343DD8B0761ED7722E03 /* LibraryView.swift */; };
 		0153613C938AAF157E86BB3E /* WorkerPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */; };
+		5FC82D0A26A841CB21F45511 /* NowPlaying.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28EFD5ECBEE53D28479D311 /* NowPlaying.swift */; };
 		DF58BB1DCB49CD7FF553358A /* Basket.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAEC84882F32D76ED84C2200 /* Basket.swift */; };
 		53067C2822036C0E45CCA812 /* JobQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65280A69102A84A0EF3843F /* JobQueue.swift */; };
 		86BF5A57AF6C44770D38EFBF /* ServerDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */; };
@@ -48,6 +50,7 @@
 		4995007FDC85DBCC41CEAAF4 /* MusicBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicBrowserView.swift; sourceTree = "<group>"; };
 		4F0B0C3F5EC5C16C9B2B6897 /* ServerEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerEndpoint.swift; sourceTree = "<group>"; };
 		07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkerPairing.swift; sourceTree = "<group>"; };
+		D28EFD5ECBEE53D28479D311 /* NowPlaying.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlaying.swift; sourceTree = "<group>"; };
 		EAEC84882F32D76ED84C2200 /* Basket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Basket.swift; sourceTree = "<group>"; };
 		A65280A69102A84A0EF3843F /* JobQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobQueue.swift; sourceTree = "<group>"; };
 		5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerDiscovery.swift; sourceTree = "<group>"; };
@@ -65,6 +68,7 @@
 		A5DFDCDDF9969AA01EB9347C /* AppleMusicSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicSource.swift; sourceTree = "<group>"; };
 		AC3EACB9D2622CCAF222DCD3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E4E4844314F8248E8616DC37 /* PairMacView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairMacView.swift; sourceTree = "<group>"; };
+		5AD237006FE2308B1E39C5F5 /* MiniPlayerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerBar.swift; sourceTree = "<group>"; };
 		D93CD43E71868DB1B23962D7 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		AD45343DD8B0761ED7722E03 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		AE2063FBA09D59E106EE30AE /* MusiclabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusiclabApp.swift; sourceTree = "<group>"; };
@@ -85,6 +89,7 @@
 				762548A90BFE8628DB71EA54 /* ArtworkView.swift */,
 				B126CE9454BA2DA151142C62 /* BatchView.swift */,
 				E4E4844314F8248E8616DC37 /* PairMacView.swift */,
+				5AD237006FE2308B1E39C5F5 /* MiniPlayerBar.swift */,
 				D93CD43E71868DB1B23962D7 /* QueueView.swift */,
 				AD45343DD8B0761ED7722E03 /* LibraryView.swift */,
 				4995007FDC85DBCC41CEAAF4 /* MusicBrowserView.swift */,
@@ -123,6 +128,7 @@
 				2E5F775423E254D5B94FC635 /* Account.swift */,
 				A5DFDCDDF9969AA01EB9347C /* AppleMusicSource.swift */,
 				07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */,
+				D28EFD5ECBEE53D28479D311 /* NowPlaying.swift */,
 				EAEC84882F32D76ED84C2200 /* Basket.swift */,
 				A65280A69102A84A0EF3843F /* JobQueue.swift */,
 				5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */,
@@ -240,6 +246,7 @@
 				BFC1E5A7C6946032E2F6F804 /* RoutePicker.swift in Sources */,
 				BEF098C2E1EA1DC5DA961022 /* HeadTracker.swift in Sources */,
 				8101ECECC868D927C94C10EF /* PairMacView.swift in Sources */,
+				A756E3806572698FE2EFD57E /* MiniPlayerBar.swift in Sources */,
 				366C052B27F2FECD258853EB /* QueueView.swift in Sources */,
 				80904057D911E98008B285A4 /* LibraryView.swift in Sources */,
 				763D29BCC08E3C30931E0F63 /* MusicBrowserView.swift in Sources */,
@@ -248,6 +255,7 @@
 				C024514408F4CE3C9C76989E /* PlaylistModels.swift in Sources */,
 				2C708A27448DF2815DFA87F3 /* RootView.swift in Sources */,
 				0153613C938AAF157E86BB3E /* WorkerPairing.swift in Sources */,
+				5FC82D0A26A841CB21F45511 /* NowPlaying.swift in Sources */,
 				DF58BB1DCB49CD7FF553358A /* Basket.swift in Sources */,
 				53067C2822036C0E45CCA812 /* JobQueue.swift in Sources */,
 				86BF5A57AF6C44770D38EFBF /* ServerDiscovery.swift in Sources */,

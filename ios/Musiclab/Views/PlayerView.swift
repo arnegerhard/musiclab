@@ -4,6 +4,7 @@ struct PlayerView: View {
     let entry: LibraryEntry
 
     @Environment(StemsClient.self) private var client
+    @Environment(NowPlaying.self) private var nowPlaying
     @Environment(SpatialEngine.self) private var engine
     @Environment(HeadTracker.self) private var head
     @State private var route = AudioRoute()
@@ -34,6 +35,18 @@ struct PlayerView: View {
         }
         .navigationTitle(entry.title)
         .navigationBarTitleDisplayMode(.inline)
+        // The drag indicator says it can be swiped away; this says it for
+        // anyone who does not read drag indicators.
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    nowPlaying.collapse()
+                } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .accessibilityLabel("Collapse")
+            }
+        }
         .task { await load() }
         .onDisappear {
             // The music carries on. Only the scene is settled up here; the

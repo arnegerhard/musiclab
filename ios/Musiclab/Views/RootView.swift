@@ -4,6 +4,7 @@ struct RootView: View {
     @Environment(StemsClient.self) private var client
     @Environment(Account.self) private var account
     @Environment(JobQueue.self) private var queue
+    @Environment(NowPlaying.self) private var nowPlaying
     @Environment(\.scenePhase) private var scenePhase
     @State private var checkedSavedServer = false
 
@@ -23,16 +24,31 @@ struct RootView: View {
             } else if !account.isSignedIn {
                 NavigationStack { SignInView() }
             } else {
+                // The bar goes inside each tab rather than around the
+                // TabView: an inset on the TabView itself lands underneath
+                // the tab bar and hides it.
                 TabView {
                     NavigationStack { LibraryView() }
+                        .safeAreaInset(edge: .bottom) { MiniPlayerBar() }
                         .tabItem { Label("Library", systemImage: "square.stack.3d.up") }
                     NavigationStack { QueueView() }
+                        .safeAreaInset(edge: .bottom) { MiniPlayerBar() }
                         .tabItem { Label("Queue", systemImage: "clock.arrow.circlepath") }
                         // Only when there is something to say. A zero badge is
                         // a permanent little alarm about nothing.
                         .badge(queue.count == 0 ? 0 : queue.count)
                     NavigationStack { AddSongView() }
+                        .safeAreaInset(edge: .bottom) { MiniPlayerBar() }
                         .tabItem { Label("Add", systemImage: "plus.circle.fill") }
+                }
+                // A sheet rather than a cover: swiping it down is the whole
+                // point, and that is what a sheet does for free.
+                .sheet(isPresented: Bindable(nowPlaying).isExpanded) {
+                    if let entry = nowPlaying.entry {
+                        NavigationStack { PlayerView(entry: entry) }
+                            .presentationDetents([.large])
+                            .presentationDragIndicator(.visible)
+                    }
                 }
                 .task { queue.begin(with: client) }
             }

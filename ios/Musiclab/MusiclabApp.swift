@@ -9,6 +9,7 @@ struct MusiclabApp: App {
     @State private var spotify = SpotifySource()
     @State private var queue = JobQueue()
     @State private var basket = Basket()
+    @State private var nowPlaying = NowPlaying()
     // Playback outlives the player screen: leaving it should not stop
     // the music any more than leaving Music.app does.
     @State private var engine = SpatialEngine()
@@ -30,6 +31,7 @@ struct MusiclabApp: App {
                 .environment(spotify)
                 .environment(queue)
                 .environment(basket)
+                .environment(nowPlaying)
                 .environment(engine)
                 .environment(head)
                 .onAppear {

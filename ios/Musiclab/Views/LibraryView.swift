@@ -5,6 +5,7 @@ struct LibraryView: View {
     @Environment(Account.self) private var account
     @Environment(\.scenePhase) private var scenePhase
     @Environment(SpatialEngine.self) private var engine
+    @Environment(NowPlaying.self) private var nowPlaying
     @State private var entries: [LibraryEntry] = []
     @State private var error: String?
     @State private var loading = true
@@ -23,13 +24,24 @@ struct LibraryView: View {
                 HStack(spacing: 12) { ProgressView(); Text("Loading…") }
             }
             ForEach(entries) { entry in
-                NavigationLink(value: entry) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(entry.title).lineLimit(2)
-                        Text("\(entry.stemCount) stems · \(format(entry.duration))")
-                            .font(.caption).foregroundStyle(.secondary)
+                Button {
+                    nowPlaying.open(entry)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(entry.title).lineLimit(2)
+                            Text("\(entry.stemCount) stems · \(format(entry.duration))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if engine.loadedSlug == entry.slug {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.caption).foregroundStyle(.tint)
+                        }
                     }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
             .onDelete { offsets in
                 confirming = offsets.first.map { entries[$0] }
@@ -58,7 +70,6 @@ struct LibraryView: View {
             Text("\(entry.stemCount) stems, here and on the server. "
                  + "Separating it again takes about as long as it did the first time.")
         }
-        .navigationDestination(for: LibraryEntry.self) { PlayerView(entry: $0) }
         .toolbar {
             Menu {
                 if let email = account.user?.email {
@@ -117,7 +128,10 @@ struct LibraryView: View {
         confirming = nil
         // Playing the song that is being deleted: stop, or the engine holds
         // files that are no longer there.
-        if engine.loadedSlug == entry.slug { engine.teardown() }
+        if engine.loadedSlug == entry.slug {
+            engine.teardown()
+            nowPlaying.clear()
+        }
         do {
             try await client.delete(slug: entry.slug)
             withAnimation { entries.removeAll { $0.slug == entry.slug } }
