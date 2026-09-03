@@ -36,7 +36,7 @@ final class WorkerProcess {
     /// The interpreter shipped inside this bundle.
     private static var python: URL {
         Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/venv/bin/python")
+            .appendingPathComponent("Contents/Resources/python/bin/python3.12")
     }
 
     static var isPackaged: Bool {
