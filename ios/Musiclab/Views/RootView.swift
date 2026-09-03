@@ -8,6 +8,7 @@ struct RootView: View {
     @Environment(SpatialEngine.self) private var engine
     @Environment(\.scenePhase) private var scenePhase
     @State private var checkedSavedServer = false
+    @State private var showingWelcome = false
 
     var body: some View {
         Group {
@@ -82,6 +83,12 @@ struct RootView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingWelcome) {
+            WelcomeView(onDone: finishWelcome)
+        }
+        // Signing in is the moment the account exists; before it there is no
+        // one to have welcomed.
+        .onChange(of: account.user?.id) { _, id in considerWelcome(id) }
         .onChange(of: client.baseURL) { _, url in
             // Whatever server was just settled on, the stored session has not
             // been checked against it. Without this, falling back from a Mac
@@ -100,6 +107,25 @@ struct RootView: View {
             }
         }
     }
+
+    /// Once per account, and only the first time. Everything that makes this
+    /// app unusual -- that separating happens elsewhere, and that where is a
+    /// choice -- is invisible from the library, and the Add screen offers the
+    /// choice without ever explaining it.
+    private func considerWelcome(_ id: String?) {
+        guard let id, !UserDefaults.standard.bool(forKey: Self.welcomeKey(id))
+        else { return }
+        showingWelcome = true
+    }
+
+    private func finishWelcome() {
+        if let id = account.user?.id {
+            UserDefaults.standard.set(true, forKey: Self.welcomeKey(id))
+        }
+        showingWelcome = false
+    }
+
+    private static func welcomeKey(_ id: String) -> String { "welcomed-\(id)" }
 
     /// A remembered address is a guess, not a fact: the Mac may have moved,
     /// changed port, or shut down. Probe it, and if it is gone drop back to
