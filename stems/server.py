@@ -229,7 +229,12 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
             # On a cold GPU container this is most of the wait, and it used to
             # be a sentence with no state behind it -- the phone could show
             # the words but had no way to know a bar belonged here.
-            _stage(job_id, Stage.loading_models, detail=event["model"])
+            done = event.get("index", 0)
+            total = max(1, event.get("total", 1))
+            _stage(
+                job_id, Stage.loading_models, detail=event["model"],
+                progress=round(done / total, 3),
+            )
         elif kind == "stage_start":
             share = event["index"] / max(1, event["total"])
             _stage(

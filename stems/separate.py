@@ -123,7 +123,10 @@ class Cascade:
                 total=len(stages),
             )
 
-            produced = self._run_stage(stage, model, input_path, parent)
+            produced = self._run_stage(
+                stage, model, input_path, parent,
+                index=index, total=len(stages),
+            )
             for stem in produced:
                 stems[stem.name] = stem
             if parent and parent in stems:
@@ -138,14 +141,21 @@ class Cascade:
         return stems
 
     def _run_stage(
-        self, stage: Stage, model: str, input_path: Path, parent: str | None
+        self, stage: Stage, model: str, input_path: Path, parent: str | None,
+        index: int = 0, total: int = 1,
     ) -> list[Stem]:
         raw_dir = self.work_dir / f"raw_{stage.key}"
         raw_dir.mkdir(parents=True, exist_ok=True)
 
         separator = self._get_separator(raw_dir)
         if self._loaded_model != model:
-            self._emit(kind="model_load", stage=stage.key, model=model)
+            # Which of how many, so the wait can be a bar rather than a
+            # spinner. On a cold GPU container this is most of the wait,
+            # and it is the one part of it with a countable end.
+            self._emit(
+                kind="model_load", stage=stage.key, model=model,
+                index=index, total=total,
+            )
             separator.load_model(model_filename=model)
             self._loaded_model = model
         else:

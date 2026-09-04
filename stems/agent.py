@@ -360,9 +360,11 @@ class Worker(Agent):
         elif kind == "model_load":
             # Minutes on a cold Mac, and until now it read as a hang: the
             # pipeline has always emitted this and nothing listened.
+            done = event.get("index", 0)
+            total = max(1, event.get("total", 1))
             self.status.working(
                 Stage.loading_models, detail=event.get("model", ""),
-                song=self._song,
+                song=self._song, progress=done / total,
             )
         elif kind == "stage_start":
             progress(f"    {event['title']}")
