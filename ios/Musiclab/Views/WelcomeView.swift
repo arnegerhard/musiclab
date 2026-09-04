@@ -5,7 +5,7 @@ import UIKit
 /// welcome sheet, gets copied to a clipboard, and will outlive this screen.
 enum WorkerDownload {
     static let url = "https://downloads.jetsons.info/Musiclab-Worker.zip"
-    static let size = "323 MB"
+    static let size = "330 MB"
 }
 
 /// Shown once, after the first sign-in, because everything that makes this app

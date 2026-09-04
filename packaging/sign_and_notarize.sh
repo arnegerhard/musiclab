@@ -55,6 +55,19 @@ awk '{ print gsub(/\//, "/") "\t" $0 }' "$MACHOS" | sort -rn | cut -f2- \
         --sign "$IDENTITY" "{}" 2>&1 | grep -v ": replacing existing signature" || true
 rm -f "$MACHOS"
 
+# Entitlements are per binary, and the app does not run Python in-process --
+# it launches the interpreter as a child, which gets its own. Signed with the
+# hardened runtime and nothing else, that child is killed the moment numba
+# asks for executable memory: SIGKILL, no exception, no message.
+echo "==> Signing the interpreter with the entitlements"
+find "$APP/Contents/Resources/python/bin" -type f -name "python3*" \
+    | while IFS= read -r py; do
+        if file "$py" 2>/dev/null | grep -q "Mach-O"; then
+            codesign --force --timestamp --options runtime \
+                --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$py"
+        fi
+      done || true
+
 echo "==> Signing the bundle"
 codesign --force --timestamp --options runtime \
     --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP"
