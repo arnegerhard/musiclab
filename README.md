@@ -41,19 +41,10 @@ time they are needed and are cached afterwards.
 That writes fourteen files into `out/`. If this is all you want, you can stop
 reading here.
 
-### Choose where the server lives
+### Deploy the server
 
-**On your Mac**, if you only listen at home:
-
-```bash
-.venv/bin/python -m stems.cli --add-user you@example.com
-.venv/bin/python -m stems.cli --serve
-```
-
-The phone finds it on the local network by itself.
-
-**On Modal**, if you want it to work anywhere. Separation can then run on a
-rented GPU, billed by the second:
+The server runs on Modal and nowhere else. Separation runs on a rented GPU,
+billed by the second, and the web container answers the phone:
 
 ```bash
 uv pip install modal && modal token new

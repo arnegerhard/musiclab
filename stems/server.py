@@ -21,7 +21,6 @@ from .api_auth import router as auth_router
 from .states import Failure, Stage, WorkerState, classify
 from .config import DEFAULT_FORMAT, OUT_DIR
 
-SERVICE_TYPE = "_stems._tcp.local."
 
 # YouTube answers a home or carrier address and challenges a datacenter one, so
 # a deployed server cannot fetch for itself. With this set it parks the job and
@@ -952,87 +951,3 @@ def stem_file(slug: str, relative: str, user: dict = Depends(current_user)):
         raise HTTPException(404, "no such file")
     # FileResponse answers Range requests, which audio seeking depends on.
     return FileResponse(path)
-
-
-def _local_ip() -> str:
-    """Best guess at this machine's LAN address, for the QR/manual fallback."""
-    import socket
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        # No packets are sent; this just picks the interface that would route out.
-        sock.connect(("192.168.0.1", 1))
-        return sock.getsockname()[0]
-    except OSError:
-        return "127.0.0.1"
-    finally:
-        sock.close()
-
-
-def _advertise(port: int):
-    """Publish over Bonjour so the phone does not need a typed-in IP."""
-    try:
-        import socket
-
-        from zeroconf import ServiceInfo, Zeroconf
-
-        # gethostname() can come back as a full DHCP-suffixed name
-        # ("Mac.hsd1.ca.comcast.net"); Bonjour wants the short label plus
-        # ".local.", so anything after the first dot has to go.
-        short = socket.gethostname().split(".")[0].replace(" ", "-") or "mac"
-        address = _local_ip()
-        info = ServiceInfo(
-            SERVICE_TYPE,
-            f"stems on {short}.{SERVICE_TYPE}",
-            addresses=[socket.inet_aton(address)],
-            port=port,
-            properties={"version": "1"},
-            server=f"{short}.local.",
-        )
-        zeroconf = Zeroconf()
-        # A previous run killed before it could unregister still holds the
-        # name for a while, so let zeroconf pick "… (2)" rather than refusing.
-        zeroconf.register_service(info, allow_name_change=True)
-        return zeroconf, info
-    except Exception as exc:  # discovery is a convenience, never fatal
-        print(f"(Bonjour advertising unavailable: {type(exc).__name__}: {exc})")
-        return None, None
-
-
-def serve(port: int = 8000, host: str = "0.0.0.0", bonjour: bool | None = None) -> int:
-    """Serve on all interfaces by default: the iOS app connects over the LAN.
-
-    Bonjour is a local-network convenience only. It cannot cross the internet,
-    and a deployed instance has no LAN worth advertising on, so anywhere but
-    this Mac it should be off: set STEMS_BONJOUR=0 or pass --no-bonjour.
-    """
-    import uvicorn
-
-    if bonjour is None:
-        bonjour = os.environ.get("STEMS_BONJOUR", "1").strip() not in ("0", "false", "no")
-
-    zeroconf = info = None
-    if bonjour:
-        zeroconf, info = _advertise(port)
-
-    address = _local_ip()
-    print(f"stems -> http://127.0.0.1:{port}   (this Mac)")
-    print(f"         http://{address}:{port}   (iPhone, same Wi-Fi)")
-    if zeroconf:
-        print("         advertised over Bonjour; the app should find it itself")
-    else:
-        print("         Bonjour off — clients need the address or the public hostname")
-    from . import auth, db
-    db.purge_expired()
-    accounts = len(db.all_users())
-    print(f"         accounts: {accounts}"
-          f"{' (create one in the app)' if accounts == 0 else ''}")
-    print(f"         reset email: {'configured' if auth.smtp_configured() else 'not configured (codes print here)'}")
-
-    try:
-        uvicorn.run(app, host=host, port=port, log_level="warning")
-    finally:
-        if zeroconf and info:
-            zeroconf.unregister_service(info)
-            zeroconf.close()
-    return 0

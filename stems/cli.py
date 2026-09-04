@@ -233,9 +233,6 @@ def main(argv=None) -> int:
         "--label", help="name for this machine in the app (default: its hostname)"
     )
     parser.add_argument(
-        "--serve", action="store_true", help="start the web app instead"
-    )
-    parser.add_argument(
         "--add-user", metavar="EMAIL", help="create an account (prompts for a password)"
     )
     parser.add_argument(
@@ -250,12 +247,6 @@ def main(argv=None) -> int:
         "--claim",
         metavar="EMAIL",
         help="move tracks separated before accounts existed to this account",
-    )
-    parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument(
-        "--no-bonjour",
-        action="store_true",
-        help="do not advertise on the local network (use when deployed)",
     )
     args = parser.parse_args(argv)
 
@@ -274,17 +265,11 @@ def main(argv=None) -> int:
     if args.add_user or args.list_users or args.claim or args.set_password:
         return _accounts(args)
 
-    if args.serve:
-        from .server import serve
-
-        # None lets STEMS_BONJOUR decide; the flag is an explicit override.
-        return serve(port=args.port, bonjour=False if args.no_bonjour else None)
-
     if args.recompress:
         return _recompress(args.out, args.format)
 
     if not args.url:
-        parser.error("a URL is required (or pass --serve for the web app)")
+        parser.error("a URL is required, or --worker to join a deployment")
 
     from . import pipeline
 

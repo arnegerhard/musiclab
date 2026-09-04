@@ -10,12 +10,9 @@ dependencies = [
     # dependency chain does not pull it in on its own.
     "audioread>=3.0",
     "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
     "python-multipart>=0.0.20",
     "soundfile>=0.13",
     "numpy>=1.26",
-    # Advertises the server over Bonjour so the iOS app finds the Mac itself.
-    "zeroconf>=0.140",
     # Verifies Sign in with Apple identity tokens against Apple's public keys.
     "pyjwt[crypto]>=2.8",
 ]

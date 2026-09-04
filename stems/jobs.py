@@ -95,8 +95,13 @@ class MemoryJobStore:
 
 
 class LocalRunner:
-    """Separation in a thread pool here. One at a time, because it saturates
-    the machine."""
+    """Separation in a thread here, one at a time.
+
+    Nothing in production reaches this any more: the server runs on Modal,
+    which replaces the runner with one that spawns a GPU container. It stays
+    as the default so the app can be imported and exercised in a test without
+    Modal, and so `store` and `runner` are never None.
+    """
 
     def __init__(self):
         self._executor = ThreadPoolExecutor(max_workers=1)
