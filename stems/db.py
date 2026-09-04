@@ -214,7 +214,8 @@ def create_session(
 def session_user(token_hash: str) -> dict | None:
     """The user, plus how much the presented token is allowed to do."""
     row = connect().execute(
-        "SELECT u.*, s.scope AS token_scope, s.id AS token_id"
+        "SELECT u.*, s.scope AS token_scope, s.id AS token_id,"
+        " s.machine AS token_machine, s.label AS token_label"
         " FROM sessions s JOIN users u ON u.id = s.user_id"
         " WHERE s.token_hash = ? AND s.expires_at > ?",
         (token_hash, time.time()),

@@ -17,6 +17,7 @@ enum WorkerDownload {
 struct WelcomeView: View {
     let onDone: () -> Void
     @Environment(StemsClient.self) private var client
+    @Environment(JobQueue.self) private var queue
 
     @State private var copied = false
     @State private var browser = WorkerBrowser()
@@ -70,7 +71,10 @@ struct WelcomeView: View {
             .navigationTitle("Musiclab")
             // The browser only runs while this sheet is up. A Mac that gets
             // opened while someone is reading this appears without a refresh.
-            .task { browser.start() }
+            .task {
+                browser.start()
+                await queue.refresh()
+            }
             .onDisappear {
                 session?.cancel()
                 browser.stop()
@@ -242,6 +246,36 @@ struct WelcomeView: View {
                     .font(.headline)
                 pairingStep(session)
             }
+        } else if !queue.machines.isEmpty {
+            // A Mac that has already been adopted never advertises itself for
+            // pairing again -- it starts working instead. Browsing alone
+            // therefore shows nothing at the exact moment someone switches
+            // their Mac on and looks here to see whether it worked.
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Your Mac")
+                    .font(.headline)
+                ForEach(queue.machines) { machine in
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(machine.indicator)
+                            .frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(machine.name).font(.callout)
+                            Text(machine.headline)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(12)
+                    .background(.quaternary.opacity(0.4),
+                                in: RoundedRectangle(cornerRadius: 12))
+                }
+                if !browser.macs.isEmpty {
+                    Text("And one offering to pair:")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(browser.macs) { mac in pairRow(mac) }
+                }
+            }
         } else if !browser.macs.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("It is running")
@@ -250,22 +284,7 @@ struct WelcomeView: View {
                      + "Mac will ask before it agrees.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                ForEach(browser.macs) { mac in
-                    Button { start(with: mac) } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "desktopcomputer")
-                                .foregroundStyle(.blue)
-                            Text(mac.name).foregroundStyle(.primary)
-                            Spacer(minLength: 0)
-                            Text("Pair").font(.callout).bold()
-                                .foregroundStyle(.blue)
-                        }
-                        .padding(12)
-                        .background(.quaternary.opacity(0.4),
-                                    in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                }
+                ForEach(browser.macs) { mac in pairRow(mac) }
             }
         } else {
             Text("Once it is open on your Mac, it will appear here to pair. "
@@ -273,6 +292,21 @@ struct WelcomeView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func pairRow(_ mac: WorkerBrowser.Found) -> some View {
+        Button { start(with: mac) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "desktopcomputer").foregroundStyle(.blue)
+                Text(mac.name).foregroundStyle(.primary)
+                Spacer(minLength: 0)
+                Text("Pair").font(.callout).bold().foregroundStyle(.blue)
+            }
+            .padding(12)
+            .background(.quaternary.opacity(0.4),
+                        in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

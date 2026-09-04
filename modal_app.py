@@ -128,7 +128,9 @@ class ModalJobStore:
     def register_worker(self, user_id: str, info: dict) -> str:
         import time
 
-        worker_id = info.get("worker_id") or f"{user_id[:6]}-{info.get('name', 'mac')}"
+        # Keyed on the machine where one is known: see jobs.MemoryJobStore.
+        identity = info.get("machine") or info.get("name") or "mac"
+        worker_id = info.get("worker_id") or f"{user_id[:6]}-{identity}"
         self._d[f"worker:{worker_id}"] = {
             **info, "worker_id": worker_id, "user_id": user_id, "seen": time.time()
         }

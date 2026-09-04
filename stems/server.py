@@ -375,9 +375,23 @@ class WorkerInfo(BaseModel):
 
 @app.post("/api/workers/register")
 def register_worker(info: WorkerInfo, user: dict = Depends(worker_user)):
-    """Announce a machine that can separate. Registration is a heartbeat, not
-    a reservation: a worker that stops calling simply stops being offered work."""
-    worker_id = jobs.store.register_worker(user["id"], info.model_dump())
+    """Announce a machine that can separate.
+
+    A heartbeat, not a reservation: a worker that stops calling stops being
+    offered work.
+
+    The identity comes from the token rather than from anything the worker
+    says about itself. A Mac calls itself by hostname -- "Mac" -- while the
+    pairing it was adopted through knows a hardware UUID and the name its
+    owner gave it, so the two could not be recognised as one machine and the
+    same Mac appeared twice: once working, once offline.
+    """
+    described = info.model_dump()
+    if user.get("token_machine"):
+        described["machine"] = user["token_machine"]
+    if user.get("token_label") and not described.get("name"):
+        described["name"] = user["token_label"]
+    worker_id = jobs.store.register_worker(user["id"], described)
     return {"worker_id": worker_id, "poll_seconds": 5}
 
 
@@ -430,7 +444,10 @@ def list_workers(user: dict = Depends(current_user)):
             matched.add(found["_key"])
         entry = {k: v for k, v in found.items() if k != "_key"}
         entry["pairing_id"] = pairing.get("id")
-        entry.setdefault("name", pairing.get("label") or "A Mac")
+        # The name its owner gave it at pairing beats the hostname it reports:
+        # "Arne's MacBook Air" is what they called it, "Mac" is what it calls
+        # itself, and only one of those is recognisable in a list.
+        entry["name"] = pairing.get("label") or entry.get("name") or "A Mac"
         listed.append(entry)
 
     # A worker running against this account with no pairing behind it -- a

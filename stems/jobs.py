@@ -55,7 +55,11 @@ class MemoryJobStore:
                 self._jobs[job_id].setdefault("log", []).append(message)
 
     def register_worker(self, user_id: str, info: dict) -> str:
-        worker_id = info.get("worker_id") or f"{user_id[:6]}-{info.get('name','mac')}"
+        # Keyed on the machine where one is known, so a Mac that renames
+        # itself -- or calls itself "Mac" while its pairing calls it something
+        # else -- stays one worker rather than becoming two.
+        identity = info.get("machine") or info.get("name") or "mac"
+        worker_id = info.get("worker_id") or f"{user_id[:6]}-{identity}"
         with self._lock:
             self._workers[worker_id] = {
                 **info, "worker_id": worker_id, "user_id": user_id, "seen": time.time()
