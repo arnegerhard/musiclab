@@ -17,11 +17,12 @@ from typing import Any, Callable
 #: Statuses a job never leaves.
 from .states import Stage
 
-# A job is finished when it will not change again on its own. "error" is what
-# the old vocabulary called a failure, and jobs from before the rename are
-# still in the store -- left out of this set they would sit in the queue for
-# ever, which is precisely the confusion this rename was meant to end.
-FINISHED = {Stage.done.value, Stage.failed.value, "error"}
+# Only a song that arrived is out of the queue. A failed one stays until the
+# person who asked for it has seen why and swiped it away -- listing it as
+# finished is how the one failure worth reporting, a downloader YouTube has
+# outgrown, managed to be invisible: the job left the queue the instant it
+# became the thing worth saying.
+FINISHED = {Stage.done.value}
 
 
 class MemoryJobStore:

@@ -159,6 +159,20 @@ class Failure(str, Enum):
         """What the person reading this can actually do."""
         return _FAILURE_LABELS[self][1]
 
+    @property
+    def retryable(self) -> bool:
+        """Whether handing this to another machine could go differently.
+
+        A dropped connection could. A video that has been taken down, or a
+        downloader YouTube has outgrown, could not: every worker would reach
+        the same wall, and the song would circle the queue for ever while the
+        person waiting was told only that it was waiting for a Mac.
+        """
+        return self in (
+            Failure.fetch_failed, Failure.separation_failed,
+            Failure.upload_failed, Failure.unknown,
+        )
+
 
 _FAILURE_LABELS: dict[Failure, tuple[str, str]] = {
     Failure.downloader_outdated: (

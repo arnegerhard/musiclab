@@ -595,12 +595,26 @@ def work_progress(job_id: str, body: WorkProgress, user: dict = Depends(worker_u
 
 @app.post("/api/work/{job_id}/failed")
 def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_user)):
-    """Hand the job back rather than failing it: another worker may manage."""
+    """Hand the job back, or fail it, depending on why the worker stopped.
+
+    Handing it back is right for a dropped connection: another Mac, or the
+    same one in a minute, may manage. It is wrong for a video that has been
+    taken down or a downloader YouTube has outgrown -- every worker reaches
+    the same wall, so the song circles the queue for ever while the person who
+    asked for it is told only that it is waiting for a Mac. Which is how the
+    single failure worth reporting stayed invisible.
+    """
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
-    _stage(job_id, Stage.waiting_for_worker, worker_id=None)
-    jobs.store.append_log(job_id, f"A worker gave up: {body.error}")
+    failure = classify(body.error)
+    if failure.retryable:
+        _stage(job_id, Stage.waiting_for_worker, worker_id=None)
+        jobs.store.append_log(job_id, f"A worker gave up: {body.error}")
+    else:
+        _stage(job_id, Stage.failed, failure=failure, error=body.error,
+               worker_id=None)
+        jobs.store.append_log(job_id, f"{failure.label}: {body.error}")
     return {"ok": True}
 
 

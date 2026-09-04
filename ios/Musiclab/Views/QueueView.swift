@@ -42,6 +42,22 @@ struct QueueView: View {
                 }
             }
 
+            // Their own section: a song that stopped is not being separated,
+            // and listing it as though it were is how a failure reads as
+            // something still in progress.
+            if !stopped.isEmpty {
+                Section {
+                    ForEach(stopped) { job in row(job) }
+                        .onDelete { offsets in
+                            Task { await cancel(offsets.map { stopped[$0] }) }
+                        }
+                } header: {
+                    Text("Stopped")
+                } footer: {
+                    Text("Swipe one away once you have read it.")
+                }
+            }
+
             machinesSection
         }
         .navigationTitle("Queue")
@@ -133,7 +149,11 @@ struct QueueView: View {
     }
 
     private var needsReview: [JobStatus] { queue.jobs.filter(\.needsConfirmation) }
-    private var running: [JobStatus] { queue.jobs.filter { !$0.needsConfirmation } }
+    private var running: [JobStatus] {
+        queue.jobs.filter { !$0.needsConfirmation && !$0.isFailed }
+    }
+
+    private var stopped: [JobStatus] { queue.jobs.filter(\.isFailed) }
 
     private func row(_ job: JobStatus) -> some View {
         VStack(alignment: .leading, spacing: 6) {
