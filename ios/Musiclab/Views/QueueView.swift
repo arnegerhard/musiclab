@@ -105,8 +105,8 @@ struct QueueView: View {
     /// holding it, since nothing reclaims a stale claim.
     private func cancel(_ targets: [JobStatus]) async {
         for job in targets {
-            guard let url = client.baseURL?
-                .appendingPathComponent("api/jobs/\(job.id)") else { continue }
+            let url = client.baseURL
+                .appendingPathComponent("api/jobs/\(job.id)")
             var request = client.request(url)
             request.httpMethod = "DELETE"
             _ = try? await URLSession.shared.data(for: request)

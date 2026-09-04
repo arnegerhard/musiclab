@@ -199,8 +199,7 @@ struct PairMacView: View {
     // MARK: - Requests
 
     private func load() async {
-        guard let url = client.baseURL?.appendingPathComponent("api/auth/pairings")
-        else { return }
+        let url = client.baseURL.appendingPathComponent("api/auth/pairings")
         do {
             let (data, _) = try await URLSession.shared.data(for: client.request(url))
             machines = (try? JSONDecoder().decode([PairedMac].self, from: data)) ?? []
@@ -213,8 +212,8 @@ struct PairMacView: View {
 
     private func revoke(_ targets: [PairedMac]) async {
         for machine in targets {
-            guard let url = client.baseURL?
-                .appendingPathComponent("api/auth/pairings/\(machine.id)") else { continue }
+            let url = client.baseURL
+                .appendingPathComponent("api/auth/pairings/\(machine.id)")
             var request = client.request(url)
             request.httpMethod = "DELETE"
             _ = try? await URLSession.shared.data(for: request)

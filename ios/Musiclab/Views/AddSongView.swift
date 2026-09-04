@@ -321,8 +321,7 @@ struct AddSongView: View {
     // MARK: - Handing it all over
 
     private func checkForMac() async {
-        guard let url = client.baseURL?.appendingPathComponent("api/auth/pairings")
-        else { return }
+        let url = client.baseURL.appendingPathComponent("api/auth/pairings")
         let found = try? await URLSession.shared.data(for: client.request(url))
         guard let data = found?.0,
               let list = try? JSONSerialization.jsonObject(with: data) as? [Any]

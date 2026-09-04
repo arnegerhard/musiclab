@@ -85,7 +85,7 @@ struct SignInView: View {
                         .font(.callout)
                 }
             } footer: {
-                if let host = client.baseURL?.host() {
+                if let host = client.baseURL.host() {
                     Text("Signed in against \(host). Your songs are visible only to you.")
                 }
             }

@@ -22,13 +22,13 @@
 		8101ECECC868D927C94C10EF /* PairMacView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4E4844314F8248E8616DC37 /* PairMacView.swift */; };
 		A756E3806572698FE2EFD57E /* MiniPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD237006FE2308B1E39C5F5 /* MiniPlayerBar.swift */; };
 		5BE83B99A4223A27D514647C /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB974670DDF8F18D9FC30B2 /* WelcomeView.swift */; };
+		3FE3FB0EF4DACD07098E1AAD /* States.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D74606E8B26ACA78CD4331B /* States.swift */; };
 		366C052B27F2FECD258853EB /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93CD43E71868DB1B23962D7 /* QueueView.swift */; };
 		80904057D911E98008B285A4 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD45343DD8B0761ED7722E03 /* LibraryView.swift */; };
 		0153613C938AAF157E86BB3E /* WorkerPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */; };
 		5FC82D0A26A841CB21F45511 /* NowPlaying.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28EFD5ECBEE53D28479D311 /* NowPlaying.swift */; };
 		DF58BB1DCB49CD7FF553358A /* Basket.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAEC84882F32D76ED84C2200 /* Basket.swift */; };
 		53067C2822036C0E45CCA812 /* JobQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65280A69102A84A0EF3843F /* JobQueue.swift */; };
-		86BF5A57AF6C44770D38EFBF /* ServerDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */; };
 		8E4980CB05DB5EEC7A5DCDD1 /* SpotifySetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A2DBBADB33369533C09AAF /* SpotifySetupView.swift */; };
 		45C446C240B0892DD8AB584A /* AudioRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDC02A9400EABF8EFC360EB /* AudioRoute.swift */; };
 		BFC1E5A7C6946032E2F6F804 /* RoutePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D888418B3CC63F8245EAB3AB /* RoutePicker.swift */; };
@@ -55,7 +55,6 @@
 		D28EFD5ECBEE53D28479D311 /* NowPlaying.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlaying.swift; sourceTree = "<group>"; };
 		EAEC84882F32D76ED84C2200 /* Basket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Basket.swift; sourceTree = "<group>"; };
 		A65280A69102A84A0EF3843F /* JobQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobQueue.swift; sourceTree = "<group>"; };
-		5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerDiscovery.swift; sourceTree = "<group>"; };
 		6D2CF87C1DFA10DC1B9AF970 /* AddSongView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSongView.swift; sourceTree = "<group>"; };
 		708B897FF50064B8780F64EF /* PlaylistModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistModels.swift; sourceTree = "<group>"; };
 		762548A90BFE8628DB71EA54 /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
@@ -73,6 +72,7 @@
 		E4E4844314F8248E8616DC37 /* PairMacView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairMacView.swift; sourceTree = "<group>"; };
 		5AD237006FE2308B1E39C5F5 /* MiniPlayerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerBar.swift; sourceTree = "<group>"; };
 		CBB974670DDF8F18D9FC30B2 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		0D74606E8B26ACA78CD4331B /* States.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = States.swift; path = ../shared/States.swift; sourceTree = SOURCE_ROOT; };
 		D93CD43E71868DB1B23962D7 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		AD45343DD8B0761ED7722E03 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		AE2063FBA09D59E106EE30AE /* MusiclabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusiclabApp.swift; sourceTree = "<group>"; };
@@ -95,6 +95,7 @@
 				E4E4844314F8248E8616DC37 /* PairMacView.swift */,
 				5AD237006FE2308B1E39C5F5 /* MiniPlayerBar.swift */,
 				CBB974670DDF8F18D9FC30B2 /* WelcomeView.swift */,
+				0D74606E8B26ACA78CD4331B /* States.swift */,
 				D93CD43E71868DB1B23962D7 /* QueueView.swift */,
 				AD45343DD8B0761ED7722E03 /* LibraryView.swift */,
 				4995007FDC85DBCC41CEAAF4 /* MusicBrowserView.swift */,
@@ -136,7 +137,6 @@
 				D28EFD5ECBEE53D28479D311 /* NowPlaying.swift */,
 				EAEC84882F32D76ED84C2200 /* Basket.swift */,
 				A65280A69102A84A0EF3843F /* JobQueue.swift */,
-				5AEFC4E62A74BBF2A8A4F2D5 /* ServerDiscovery.swift */,
 				4F0B0C3F5EC5C16C9B2B6897 /* ServerEndpoint.swift */,
 				40808A51AF81B1E6C1BBBDD2 /* SpotifySource.swift */,
 				9563FD786BCCFCF1A59BC618 /* StemsClient.swift */,
@@ -255,6 +255,7 @@
 				8101ECECC868D927C94C10EF /* PairMacView.swift in Sources */,
 				A756E3806572698FE2EFD57E /* MiniPlayerBar.swift in Sources */,
 				5BE83B99A4223A27D514647C /* WelcomeView.swift in Sources */,
+				3FE3FB0EF4DACD07098E1AAD /* States.swift in Sources */,
 				366C052B27F2FECD258853EB /* QueueView.swift in Sources */,
 				80904057D911E98008B285A4 /* LibraryView.swift in Sources */,
 				763D29BCC08E3C30931E0F63 /* MusicBrowserView.swift in Sources */,
@@ -266,7 +267,6 @@
 				5FC82D0A26A841CB21F45511 /* NowPlaying.swift in Sources */,
 				DF58BB1DCB49CD7FF553358A /* Basket.swift in Sources */,
 				53067C2822036C0E45CCA812 /* JobQueue.swift in Sources */,
-				86BF5A57AF6C44770D38EFBF /* ServerDiscovery.swift in Sources */,
 				F6E3D8DA6FFEFD45F67E8945 /* ServerEndpoint.swift in Sources */,
 				ED7084CE388B0C0A5FEC7C52 /* SignInView.swift in Sources */,
 				9B474F78D6DCD76807D17225 /* SpatialEngine.swift in Sources */,

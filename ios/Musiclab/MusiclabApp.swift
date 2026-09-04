@@ -3,7 +3,6 @@ import SwiftUI
 @main
 struct MusiclabApp: App {
     @State private var client = StemsClient()
-    @State private var discovery = ServerDiscovery()
     @State private var account: Account
     @State private var apple = AppleMusicSource()
     @State private var spotify = SpotifySource()
@@ -25,7 +24,6 @@ struct MusiclabApp: App {
         WindowGroup {
             RootView()
                 .environment(client)
-                .environment(discovery)
                 .environment(account)
                 .environment(apple)
                 .environment(spotify)

@@ -40,8 +40,7 @@ final class Account: NSObject {
     // MARK: - Requests
 
     private func post<Body: Encodable>(_ path: String, _ body: Body) async throws -> Session {
-        guard let baseURL = client.baseURL else { throw StemsClient.ClientError.notConnected }
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        var request = URLRequest(url: client.baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
@@ -99,10 +98,9 @@ final class Account: NSObject {
 
     /// Succeeds whether or not the address has an account, matching the server.
     func requestReset(email: String) async -> Bool {
-        guard let baseURL = client.baseURL,
-              let body = try? JSONEncoder().encode(ResetRequest(email: email))
+        guard let body = try? JSONEncoder().encode(ResetRequest(email: email))
         else { return false }
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/auth/reset/request"))
+        var request = URLRequest(url: client.baseURL.appendingPathComponent("api/auth/reset/request"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
@@ -164,10 +162,11 @@ final class Account: NSObject {
     /// session has expired or the server no longer knows it.
     @discardableResult
     func restore() async -> Bool {
-        guard let baseURL = client.baseURL, !client.token.isEmpty else {
+        guard !client.token.isEmpty else {
             user = nil
             return false
         }
+        let baseURL = client.baseURL
         let request = client.request(baseURL.appendingPathComponent("api/auth/me"))
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse
@@ -200,8 +199,8 @@ final class Account: NSObject {
     /// an app that can create an account to be able to remove one, and this
     /// is that.
     func deleteAccount() async -> Bool {
-        guard let baseURL = client.baseURL, !client.token.isEmpty else { return false }
-        var request = client.request(baseURL.appendingPathComponent("api/auth/account"))
+        guard !client.token.isEmpty else { return false }
+        var request = client.request(client.baseURL.appendingPathComponent("api/auth/account"))
         request.httpMethod = "DELETE"
         guard let (_, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200
@@ -214,8 +213,8 @@ final class Account: NSObject {
     }
 
     func signOut() async {
-        if let baseURL = client.baseURL, !client.token.isEmpty {
-            var request = client.request(baseURL.appendingPathComponent("api/auth/logout"))
+        if !client.token.isEmpty {
+            var request = client.request(client.baseURL.appendingPathComponent("api/auth/logout"))
             request.httpMethod = "POST"
             _ = try? await URLSession.shared.data(for: request)
         }

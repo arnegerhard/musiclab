@@ -37,8 +37,8 @@ final class JobQueue {
     }
 
     func refresh() async {
-        guard let client, let baseURL = client.baseURL, !client.token.isEmpty else { return }
-        let url = baseURL.appendingPathComponent("api/jobs")
+        guard let client, !client.token.isEmpty else { return }
+        let url = client.baseURL.appendingPathComponent("api/jobs")
         do {
             let (data, response) = try await URLSession.shared.data(for: client.request(url))
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }

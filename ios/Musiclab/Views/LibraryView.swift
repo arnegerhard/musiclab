@@ -48,9 +48,11 @@ struct LibraryView: View {
                 confirming = offsets.first.map { entries[$0] }
             }
             if let error {
+                // There is one server and it is not going anywhere, so the
+                // only useful offer is to ask it again.
                 VStack(alignment: .leading, spacing: 10) {
                     Text(error).foregroundStyle(.red).font(.callout)
-                    Button("Find the server again") { client.baseURL = nil }
+                    Button("Try again") { Task { await reload() } }
                         .font(.callout)
                 }
             }
@@ -66,9 +68,11 @@ struct LibraryView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This cannot be undone. Every song separated for this account "
-                 + "is deleted from the server and from this phone, and any "
-                 + "paired Mac stops working for it.")
+            Text("""
+                This cannot be undone. Every song separated for this account is \
+                deleted from the server and from this phone, and any paired Mac \
+                stops working for it.
+                """)
         }
         .confirmationDialog(
             confirming.map { "Delete \($0.title)?" } ?? "",
@@ -82,20 +86,22 @@ struct LibraryView: View {
             }
             Button("Cancel", role: .cancel) { confirming = nil }
         } message: { entry in
-            Text("\(entry.stemCount) stems, here and on the server. "
-                 + "Separating it again takes about as long as it did the first time.")
+            Text("""
+                \(entry.stemCount) stems, here and on the server. Separating it \
+                again takes about as long as it did the first time.
+                """)
         }
         .toolbar {
             Menu {
                 if let email = account.user?.email {
                     Text(email)
                 }
+                // Signed out is the only way to not be signed in. There used
+                // to be a second, "Disconnect", which forgot the server as
+                // well -- a distinction that meant something when the server
+                // might be a Mac on this network, and nothing since.
                 Button("Sign out", systemImage: "person.crop.circle.badge.xmark") {
                     Task { await account.signOut() }
-                }
-                Button("Disconnect", systemImage: "xmark.circle") {
-                    Task { await account.signOut() }
-                    client.baseURL = nil
                 }
                 Divider()
                 Button("Delete account", systemImage: "trash", role: .destructive) {
@@ -106,11 +112,8 @@ struct LibraryView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if let url = client.baseURL, let host = url.host() {
-                // Port included: with a local and a deployed server both in
-                // play, the host alone does not say which one answered.
-                let port = url.port.map { ":\($0)" } ?? ""
-                Text("\(Distribution.current.label) · \(host)\(port)")
+            if let host = client.baseURL.host() {
+                Text("\(Distribution.current.label) · \(host)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 4)

@@ -21,9 +21,11 @@ final class StemsClient {
         }
     }
 
-    var baseURL: URL? {
-        didSet { UserDefaults.standard.set(baseURL?.absoluteString, forKey: "baseURL") }
-    }
+    /// The server. There is exactly one, it is known at build time, and it
+    /// cannot be lost -- which is what removes "not connected" as a state the
+    /// app can be in. It used to be discovered on every launch, remembered
+    /// between launches, and wrong whenever the phone changed network.
+    let baseURL: URL
 
     private(set) var downloadProgress: Double = 0
 
@@ -41,16 +43,25 @@ final class StemsClient {
     var user: Account.User?
 
     init() {
-        if let saved = UserDefaults.standard.string(forKey: "baseURL") {
-            baseURL = URL(string: saved)
-        }
+        baseURL = Self.deployment
     }
+
+    /// Set by the MUSICLAB_CLOUD_URL build setting, which is how TestFlight
+    /// and the App Store point at the deployment without anyone typing an
+    /// address. The literal is the last resort for a build configured wrong:
+    /// an app with no server at all can do nothing, including explain itself.
+    static let deployment: URL = {
+        if let text = Bundle.main.object(forInfoDictionaryKey: "MusiclabCloudURL") as? String,
+           let url = URL(string: text), url.host() != nil {
+            return url
+        }
+        return URL(string: "https://arnegerhard--musiclab-web.modal.run")!
+    }()
 
     /// Every outgoing request goes through here so none forgets the token.
     /// Mint a single-use code for adopting a Mac. Both the pairing screen and
     /// the welcome sheet need one, and it is spent by the Mac within seconds.
     func mintPairingCode() async throws -> (code: String, server: String) {
-        guard let baseURL else { throw ClientError.notConnected }
         var request = self.request(baseURL.appendingPathComponent("api/auth/pair"))
         request.httpMethod = "POST"
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -74,7 +85,6 @@ final class StemsClient {
     private var decoder: JSONDecoder { JSONDecoder() }
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
-        guard let baseURL else { throw ClientError.notConnected }
         let (data, response) = try await URLSession.shared.data(
             for: request(baseURL.appendingPathComponent(path))
         )
@@ -84,20 +94,6 @@ final class StemsClient {
         return try decoder.decode(T.self, from: data)
     }
 
-    /// Confirms a host really is a stems server before we adopt it.
-    ///
-    /// The timeout is a parameter because the two candidates behave nothing
-    /// alike: a Mac on the same network answers immediately or not at all,
-    /// while a serverless host has to start a container first.
-    func probe(_ url: URL, timeout: TimeInterval = 3) async -> Bool {
-        var request = self.request(url.appendingPathComponent("api/health"))
-        request.timeoutInterval = timeout
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return false }
-        return json["service"] as? String == "stems"
-    }
 
     /// Delete a track and every stem of it, on the server and on this device.
     ///
@@ -105,7 +101,6 @@ final class StemsClient {
     /// rather than streamed, so a deleted song leaves a few hundred megabytes
     /// behind in the cache if only the server is told.
     func delete(slug: String) async throws {
-        guard let baseURL else { throw ClientError.notConnected }
         var request = self.request(baseURL.appendingPathComponent("api/library/\(slug)"))
         request.httpMethod = "DELETE"
         let (_, response) = try await URLSession.shared.data(for: request)
@@ -120,7 +115,7 @@ final class StemsClient {
     /// Wanted by the lock screen and the bar above the tabs, so it is fetched
     /// once and kept rather than pulled down every time a song starts.
     func artwork(for entry: LibraryEntry) async -> UIImage? {
-        guard let relative = entry.artwork, let baseURL else { return nil }
+        guard let relative = entry.artwork else { return nil }
         let cached = localDirectory(for: entry.slug).appendingPathComponent("cover.jpg")
         if let data = try? Data(contentsOf: cached), let image = UIImage(data: data) {
             return image
@@ -185,7 +180,6 @@ final class StemsClient {
     /// none of it transferring. Together they take about as long as the
     /// slowest one.
     func download(slug: String, stems: [Stem]) async throws -> [String: URL] {
-        guard let baseURL else { throw ClientError.notConnected }
         let directory = localDirectory(for: slug)
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true
@@ -247,14 +241,13 @@ final class StemsClient {
 extension StemsClient {
     /// Scenes are a convenience, so both directions fail quietly.
     func scene(slug: String) async -> SpatialScene? {
-        guard let baseURL else { return nil }
         let url = baseURL.appendingPathComponent("api/library/\(slug)/scene")
         guard let (data, _) = try? await URLSession.shared.data(for: request(url)) else { return nil }
         return try? JSONDecoder().decode(SpatialScene.self, from: data)
     }
 
     func saveScene(_ scene: SpatialScene, slug: String) async {
-        guard let baseURL, let body = try? JSONEncoder().encode(scene) else { return }
+        guard let body = try? JSONEncoder().encode(scene) else { return }
         var request = self.request(
             baseURL.appendingPathComponent("api/library/\(slug)/scene")
         )
@@ -271,7 +264,6 @@ extension StemsClient {
     private func post<Body: Encodable, Reply: Decodable>(
         _ path: String, body: Body
     ) async throws -> Reply {
-        guard let baseURL else { throw ClientError.notConnected }
         var request = self.request(baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -339,8 +331,7 @@ extension StemsClient {
 
     func batch(id: String) async throws -> [JobStatus] {
         if id.hasPrefix("job:") {
-            guard let baseURL else { throw ClientError.notConnected }
-            let jobID = String(id.dropFirst(4))
+                let jobID = String(id.dropFirst(4))
             let (data, _) = try await URLSession.shared.data(
                 for: request(baseURL.appendingPathComponent("api/jobs/\(jobID)"))
             )
@@ -350,7 +341,6 @@ extension StemsClient {
     }
 
     private func batchList(id: String) async throws -> [JobStatus] {
-        guard let baseURL else { throw ClientError.notConnected }
         let (data, _) = try await URLSession.shared.data(
             for: request(baseURL.appendingPathComponent("api/batch/\(id)"))
         )
@@ -381,7 +371,6 @@ extension StemsClient {
         destination: String = "cloud",
         progress: @escaping (Double) -> Void = { _ in }
     ) async throws -> String {
-        guard let baseURL else { throw ClientError.notConnected }
 
         let boundary = "musiclab.\(UUID().uuidString)"
         var request = self.request(baseURL.appendingPathComponent("api/upload"))
