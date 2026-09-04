@@ -16,7 +16,12 @@ enum WorkerDownload {
 /// it.
 struct WelcomeView: View {
     let onDone: () -> Void
+    @Environment(StemsClient.self) private var client
+
     @State private var copied = false
+    @State private var browser = WorkerBrowser()
+    @State private var session: PairingSession?
+    @State private var pairingWith: WorkerBrowser.Found?
 
     var body: some View {
         NavigationStack {
@@ -57,11 +62,19 @@ struct WelcomeView: View {
                     }
 
                     download
+                    pairing
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
             }
             .navigationTitle("Musiclab")
+            // The browser only runs while this sheet is up. A Mac that gets
+            // opened while someone is reading this appears without a refresh.
+            .task { browser.start() }
+            .onDisappear {
+                session?.cancel()
+                browser.stop()
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done", action: onDone).bold()
@@ -216,6 +229,117 @@ struct WelcomeView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// Pairing belongs next to the download, because it is the same errand:
+    /// the helper is only useful once this phone has adopted it. Skippable --
+    /// Done is always there, and the Queue tab does this too.
+    @ViewBuilder
+    private var pairing: some View {
+        if let session {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Pairing with \(session.macName)")
+                    .font(.headline)
+                pairingStep(session)
+            }
+        } else if !browser.macs.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("It is running")
+                    .font(.headline)
+                Text("Found on this network. Pairing takes a moment, and the "
+                     + "Mac will ask before it agrees.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(browser.macs) { mac in
+                    Button { start(with: mac) } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "desktopcomputer")
+                                .foregroundStyle(.blue)
+                            Text(mac.name).foregroundStyle(.primary)
+                            Spacer(minLength: 0)
+                            Text("Pair").font(.callout).bold()
+                                .foregroundStyle(.blue)
+                        }
+                        .padding(12)
+                        .background(.quaternary.opacity(0.4),
+                                    in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else {
+            Text("Once it is open on your Mac, it will appear here to pair. "
+                 + "You can also do that later, from the Queue tab.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func pairingStep(_ session: PairingSession) -> some View {
+        switch session.step {
+        case .connecting:
+            labelled("Connecting…")
+        case let .confirm(number):
+            VStack(spacing: 10) {
+                Text(number)
+                    .font(.system(size: 32, weight: .semibold, design: .monospaced))
+                Text("Pair only if \(session.macName) is showing these same "
+                     + "six digits.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                HStack {
+                    Button("Cancel", role: .cancel) { stop() }
+                    Spacer()
+                    Button("Pair") { session.confirm() }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        case let .waitingForMac(number):
+            VStack(spacing: 8) {
+                Text(number)
+                    .font(.system(size: 32, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                labelled("Waiting for \(session.macName) to allow it…")
+            }
+            .frame(maxWidth: .infinity)
+        case .handingOver:
+            labelled("Setting it up…")
+        case .paired:
+            Label("\(session.macName) is ready to work",
+                  systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .task {
+                    if let mac = pairingWith { browser.hide(mac) }
+                    self.session = nil
+                    self.pairingWith = nil
+                }
+        case let .failed(reason):
+            VStack(alignment: .leading, spacing: 8) {
+                Label(reason, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange).font(.callout)
+                Button("Try again") { stop() }
+            }
+        }
+    }
+
+    private func labelled(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text(text).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func start(with mac: WorkerBrowser.Found) {
+        pairingWith = mac
+        session = PairingSession(mac: mac) { try await client.mintPairingCode() }
+    }
+
+    private func stop() {
+        session?.cancel()
+        session = nil
+        pairingWith = nil
     }
 
     /// The clipboard has to leave the phone: the whole point is to paste this

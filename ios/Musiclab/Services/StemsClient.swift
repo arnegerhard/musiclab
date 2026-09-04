@@ -47,6 +47,21 @@ final class StemsClient {
     }
 
     /// Every outgoing request goes through here so none forgets the token.
+    /// Mint a single-use code for adopting a Mac. Both the pairing screen and
+    /// the welcome sheet need one, and it is spent by the Mac within seconds.
+    func mintPairingCode() async throws -> (code: String, server: String) {
+        guard let baseURL else { throw ClientError.notConnected }
+        var request = self.request(baseURL.appendingPathComponent("api/auth/pair"))
+        request.httpMethod = "POST"
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200,
+              let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = payload["code"] as? String
+        else { throw ClientError.badResponse(status) }
+        return (code, baseURL.absoluteString)
+    }
+
     func request(_ url: URL) -> URLRequest {
         var request = URLRequest(url: url)
         let token = self.token

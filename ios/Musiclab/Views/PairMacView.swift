@@ -170,7 +170,7 @@ struct PairMacView: View {
         session = PairingSession(mac: mac) {
             // The code is minted only once both ends have agreed, and it is
             // spent by the Mac within seconds.
-            try await mintCode()
+            try await client.mintPairingCode()
         }
     }
 
@@ -197,18 +197,6 @@ struct PairMacView: View {
     }
 
     // MARK: - Requests
-
-    private func mintCode() async throws -> (code: String, server: String) {
-        guard let baseURL = client.baseURL else { throw StemsClient.ClientError.notConnected }
-        var request = client.request(baseURL.appendingPathComponent("api/auth/pair"))
-        request.httpMethod = "POST"
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let code = payload["code"] as? String
-        else { throw StemsClient.ClientError.badResponse(0) }
-        return (code, baseURL.absoluteString)
-    }
 
     private func load() async {
         guard let url = client.baseURL?.appendingPathComponent("api/auth/pairings")
