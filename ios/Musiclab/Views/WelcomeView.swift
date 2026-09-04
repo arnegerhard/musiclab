@@ -30,6 +30,12 @@ struct WelcomeView: View {
 
                     diagram
 
+                    Text("A link means YouTube, Apple Music or Spotify. "
+                         + "Fetching the audio from any of them needs a Mac: "
+                         + "they refuse servers, and Modal is a server.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     VStack(alignment: .leading, spacing: 18) {
                         Text("Separating is the heavy part")
                             .font(.headline)
@@ -38,15 +44,15 @@ struct WelcomeView: View {
                             symbol: "desktopcomputer",
                             tint: .blue,
                             title: "On your Mac",
-                            detail: "Free, and the only way to use a link. "
-                                  + "Needs the helper app below, left running."
+                            detail: "Free, and the only route a link can "
+                                  + "take. Needs the helper app below, left running."
                         )
                         option(
                             symbol: "bolt.horizontal.circle",
                             tint: .orange,
                             title: "On Modal",
-                            detail: "A few cents a song, no Mac needed — but it "
-                                  + "can only take files you already have."
+                            detail: "A few cents a song and no Mac at all — "
+                                  + "but only for files you already have."
                         )
                     }
 
@@ -64,17 +70,21 @@ struct WelcomeView: View {
         }
     }
 
-    /// Deliberately not a picture of the audio. The thing worth drawing is the
-    /// shape of the system: one song, two places it can be split, and a phone
-    /// that ends up holding the result either way. The fork has to be drawn
-    /// properly -- a plain vertical line between two nodes of different widths
-    /// reads as "song, then Mac", with Modal standing off to one side.
+    /// The point of the picture is which route a song can take, because that
+    /// is the part that constrains what the app can do at all: a link can only
+    /// be fetched by a Mac. Drawing it as one song splitting two ways said the
+    /// two were interchangeable, which is the opposite of true.
     private var diagram: some View {
         VStack(spacing: 0) {
-            node(symbol: "music.note", label: "A song", tint: .secondary)
-            Branch(spreading: true)
+            HStack(spacing: 0) {
+                node(symbol: "link", label: "A link", tint: .secondary)
+                    .frame(maxWidth: .infinity)
+                node(symbol: "waveform", label: "A file you have", tint: .secondary)
+                    .frame(maxWidth: .infinity)
+            }
+            Routes()
                 .stroke(.tertiary, lineWidth: 1.5)
-                .frame(height: 26)
+                .frame(height: 40)
             HStack(spacing: 0) {
                 node(symbol: "desktopcomputer", label: "Your Mac", tint: .blue)
                     .frame(maxWidth: .infinity)
@@ -92,8 +102,32 @@ struct WelcomeView: View {
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 16))
     }
 
-    /// One line splitting into two, or two rejoining into one. The quarter
-    /// points are where the two nodes centre, each holding half the width.
+    /// A link drops straight to the Mac and has nowhere else to go. A file
+    /// drops to Modal and also sweeps across to the Mac.
+    ///
+    /// That second route is a curve of its own rather than a rung between the
+    /// two verticals: a shared horizontal can be read in the other direction,
+    /// as though a link could turn right and reach Modal, which is the one
+    /// thing this picture exists to deny.
+    private struct Routes: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            let left = rect.width * 0.25, right = rect.width * 0.75
+            path.move(to: CGPoint(x: left, y: rect.minY))
+            path.addLine(to: CGPoint(x: left, y: rect.maxY))
+            path.move(to: CGPoint(x: right, y: rect.minY))
+            path.addLine(to: CGPoint(x: right, y: rect.maxY))
+            path.move(to: CGPoint(x: right, y: rect.minY))
+            path.addCurve(
+                to: CGPoint(x: left, y: rect.maxY),
+                control1: CGPoint(x: right, y: rect.midY),
+                control2: CGPoint(x: left, y: rect.midY)
+            )
+            return path
+        }
+    }
+
+    /// Two rejoining into one.
     private struct Branch: Shape {
         let spreading: Bool
 
@@ -150,8 +184,11 @@ struct WelcomeView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("The Mac helper")
                 .font(.headline)
-            Text("Open this on your Mac. It sits in the menu bar, and the app "
-                 + "finds it on your network — nothing to type.")
+            Text("Open this on your Mac. It sits in the menu bar, and the "
+                 + "app finds it on your network — nothing to type.\n\n"
+                 + "Without it, this app can still separate audio files you "
+                 + "pick from your phone. It cannot fetch anything from a "
+                 + "link.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
