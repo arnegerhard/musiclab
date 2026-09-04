@@ -82,6 +82,29 @@ _LABELS: dict[Stage, str] = {
 }
 
 
+# What the old vocabulary called these, so jobs already in the store keep
+# meaning something. A live system cannot be asked to forget its queue.
+_LEGACY_STAGES = {
+    "error": "failed",
+    "awaiting_fetch": "waiting_for_worker",
+    "running": "separating",
+    "claimed": "separating",
+    "fetching": "fetching",
+}
+
+
+def parse_stage(value: str | None) -> Stage | None:
+    """A Stage from whatever the store happens to hold, or None."""
+    if not value:
+        return None
+    try:
+        return Stage(value)
+    except ValueError:
+        pass
+    mapped = _LEGACY_STAGES.get(value)
+    return Stage(mapped) if mapped else None
+
+
 class WorkerState(str, Enum):
     """What a machine is, as distinct from what a song is.
 

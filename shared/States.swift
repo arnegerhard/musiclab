@@ -54,6 +54,21 @@ enum Stage: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// What the old vocabulary called these. Jobs queued before the rename
+    /// are still in the store, and a strict decode would leave them looking
+    /// like a stage this app had never heard of -- which is to say, looking
+    /// like they were still running.
+    static func parse(_ raw: String?) -> Stage? {
+        guard let raw, !raw.isEmpty else { return nil }
+        if let stage = Stage(rawValue: raw) { return stage }
+        switch raw {
+        case "error": return .failed
+        case "awaiting_fetch": return .waitingForWorker
+        case "running", "claimed": return .separating
+        default: return nil
+        }
+    }
+
     var symbol: String {
         switch self {
         case .queued, .waitingForWorker: return "clock"

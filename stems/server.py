@@ -380,45 +380,59 @@ def register_worker(info: WorkerInfo, user: dict = Depends(worker_user)):
 def list_workers(user: dict = Depends(current_user)):
     """Every machine this account has, and what each is doing right now.
 
-    A worker that has stopped calling is reported offline rather than left
-    showing whatever it was doing when it died -- a stale "Separating" is the
-    one thing worse than saying nothing, because it never resolves.
+    Two sources have to be reconciled. A pairing is a Mac this account
+    adopted, whether or not it is switched on; a heartbeat is a Mac that is
+    running, whether or not it was ever paired. They do not agree on how to
+    name a machine -- a pairing knows the hardware UUID it was adopted with, a
+    heartbeat knows the hostname -- so a Mac that is both used to appear
+    twice: once idle and once offline.
     """
-    live = {}
+    live: dict[str, dict] = {}
     for worker in jobs.store.workers(user["id"]):
         entry = dict(worker)
         entry.setdefault("state", WorkerState.idle.value)
         entry.setdefault("phase", WorkerState.idle.label)
-        key = entry.get("machine") or entry.get("name") or entry.get("worker_id")
-        live[key] = entry
+        # A client decoding "stage" as an enum cannot make sense of "", and a
+        # strict decoder throws away the whole list over one field.
+        for field in ("stage", "failure"):
+            if not entry.get(field):
+                entry[field] = None
+        entry["_key"] = entry.get("worker_id") or entry.get("name") or ""
+        for key in (entry.get("machine"), entry.get("name"), entry.get("worker_id")):
+            if key:
+                live[key] = entry
 
-    # Every Mac this account adopted, whether or not it is switched on. A Mac
-    # that has been paired and is now silent is a fact worth showing: it is
-    # the difference between "nothing is happening" and "nothing can happen".
-    listed = []
-    seen_keys = set()
-    for machine in db.sessions_with_scope(user["id"], "worker"):
-        key = machine.get("machine") or machine.get("label")
-        entry = live.get(key)
-        if entry is None:
-            entry = {
-                "worker_id": "",
-                "name": machine.get("label") or "A Mac",
-                "machine": machine.get("machine") or "",
+    listed: list[dict] = []
+    matched: set[str] = set()
+    for pairing in db.sessions_with_scope(user["id"], "worker"):
+        found = next(
+            (live[key] for key in (pairing.get("machine"), pairing.get("label"))
+             if key and key in live),
+            None,
+        )
+        if found is None:
+            # Adopted and silent, which is a fact worth showing: it is the
+            # difference between nothing happening and nothing being able to.
+            found = {
+                "name": pairing.get("label") or "A Mac",
+                "machine": pairing.get("machine") or "",
                 "state": WorkerState.offline.value,
                 "phase": WorkerState.offline.label,
-                "stage": "", "detail": "", "song": "", "progress": None,
-                "seen": machine.get("last_seen"),
+                "stage": None, "failure": None, "detail": "", "song": "",
+                "progress": None, "seen": pairing.get("last_seen"),
             }
-        entry = dict(entry)
-        entry["pairing_id"] = machine.get("id")
-        entry.setdefault("name", machine.get("label") or "A Mac")
+        else:
+            matched.add(found["_key"])
+        entry = {k: v for k, v in found.items() if k != "_key"}
+        entry["pairing_id"] = pairing.get("id")
+        entry.setdefault("name", pairing.get("label") or "A Mac")
         listed.append(entry)
-        seen_keys.add(key)
 
-    # A worker running against this account without a pairing row -- a
-    # development build, say. Better shown than silently dropped.
-    listed.extend(e for k, e in live.items() if k not in seen_keys)
+    # A worker running against this account with no pairing behind it -- a
+    # development build, say. Shown rather than dropped, and only once.
+    for entry in {e["_key"]: e for e in live.values()}.values():
+        if entry["_key"] not in matched:
+            listed.append({k: v for k, v in entry.items() if k != "_key"})
     return listed
 
 

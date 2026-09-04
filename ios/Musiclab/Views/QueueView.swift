@@ -41,6 +41,8 @@ struct QueueView: View {
                         }
                 }
             }
+
+            machinesSection
         }
         .navigationTitle("Queue")
         // The machines that do this work belong beside the work, not in the
@@ -64,37 +66,127 @@ struct QueueView: View {
         .refreshable { await queue.refresh() }
     }
 
+    /// Every Mac, whether or not it is switched on. This is the answer to
+    /// "why is nothing happening": a queue with no live machine behind it is
+    /// not slow, it is stuck, and that used to be invisible from here.
+    @ViewBuilder
+    private var machinesSection: some View {
+        Section {
+            if queue.machines.isEmpty {
+                Button { pairing = true } label: {
+                    Label("Pair a Mac", systemImage: "desktopcomputer.trianglebadge.exclamationmark")
+                        .foregroundStyle(.orange)
+                }
+            }
+            ForEach(queue.machines) { machine in
+                machineRow(machine)
+            }
+        } header: {
+            Text("Macs")
+        } footer: {
+            Text(queue.hasLiveMachine
+                 ? "A link, Apple Music or Spotify needs one of these running."
+                 : "Nothing is running. Songs needing a Mac will wait here "
+                   + "until one is.")
+        }
+    }
+
+    private func machineRow(_ machine: Machine) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(machine.indicator)
+                    .frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(machine.name).font(.callout).lineLimit(1)
+                    Text(machine.headline)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if machine.state == .busy, let stage = machine.stage {
+                    Image(systemName: stage.symbol)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if machine.state == .busy || machine.state == .downloadingModels {
+                if machine.showsDeterminateBar, let fraction = machine.progress {
+                    ProgressView(value: min(1, max(0, fraction)))
+                        .progressViewStyle(.linear)
+                } else {
+                    ProgressView().progressViewStyle(.linear)
+                }
+                if let song = machine.song, !song.isEmpty {
+                    Text(song).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Red for stopped, grey for not started, tint for under way. Written out
+    /// rather than nested in the view: a ternary chain of three Color-ish
+    /// literals is more than the type checker will sit through.
+    private func stageColour(_ job: JobStatus) -> Color {
+        if job.isFailed { return .red }
+        if job.isWaiting { return .secondary }
+        return .accentColor
+    }
+
     private var needsReview: [JobStatus] { queue.jobs.filter(\.needsConfirmation) }
     private var running: [JobStatus] { queue.jobs.filter { !$0.needsConfirmation } }
 
     private func row(_ job: JobStatus) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
-                if job.isFailed {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                // The stage says which of these a song is at, so the icon can
+                // be the step rather than a spinner that means "something".
+                if let stage = job.stage {
+                    Image(systemName: stage.symbol)
+                        .foregroundStyle(stageColour(job))
+                        .frame(width: 20)
                 } else {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.small).frame(width: 20)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(job.title ?? "Unknown").font(.callout).lineLimit(1)
-                    Text(detail(job))
+                    Text(job.headline)
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
-            // The same bar the Mac is showing.
-            if let fraction = job.progress, !job.isFailed {
-                ProgressView(value: min(1, max(0, fraction)))
-                    .progressViewStyle(.linear)
-                HStack {
-                    if let worker = job.workerName, !worker.isEmpty {
-                        Label(worker, systemImage: "desktopcomputer")
-                    } else {
-                        Text("Waiting for a machine")
-                    }
-                    Spacer()
+
+            // A bar for work in progress, and none for work that has not
+            // started: a stalled bar at zero says the opposite of "waiting".
+            if !job.isFailed && !job.isWaiting && job.stage != .done {
+                if job.showsDeterminateBar, let fraction = job.progress {
+                    ProgressView(value: min(1, max(0, fraction)))
+                        .progressViewStyle(.linear)
+                } else {
+                    ProgressView().progressViewStyle(.linear)
+                }
+            }
+
+            HStack {
+                if let worker = job.workerName, !worker.isEmpty {
+                    Label(worker, systemImage: "desktopcomputer")
+                } else if job.isWaiting {
+                    Text(job.stage == .waitingForWorker
+                         ? "No Mac has picked this up yet" : "Queued")
+                }
+                Spacer()
+                if job.showsDeterminateBar, let fraction = job.progress {
                     Text("\(Int(fraction * 100))%").monospacedDigit()
                 }
-                .font(.caption2).foregroundStyle(.tertiary)
+            }
+            .font(.caption2).foregroundStyle(.tertiary)
+
+            // The one failure a person can do something about says what.
+            if let failure = job.failure {
+                Text(failure.remedy)
+                    .font(.caption)
+                    .foregroundStyle(failure.isFixable ? .orange : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let detail = job.detail, !detail.isEmpty, !job.isFailed {
+                Text(detail).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
             }
         }
         .padding(.vertical, 2)
