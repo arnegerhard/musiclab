@@ -36,12 +36,15 @@ struct MusiclabWorkerApp: App {
         }
     }
 
+    /// The one glance a menu bar affords: filled while working, hollow while
+    /// waiting, marked when something needs a person.
     private var symbol: String {
         switch reader.status.state {
-        case .working, .downloadingModels: return "circle.fill"
+        case .busy, .downloadingModels: return "circle.fill"
         case .idle: return "circle"
-        case .error: return "exclamationmark.circle"
-        default: return "circle.dotted"
+        case .failed: return "exclamationmark.circle"
+        case .starting: return "circle.dashed"
+        case .offline: return "circle.dotted"
         }
     }
 }

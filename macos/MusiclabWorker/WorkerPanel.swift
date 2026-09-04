@@ -73,13 +73,22 @@ struct WorkerPanel: View {
                     .font(.callout).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
 
-            Text(status.phase.isEmpty ? " " : status.phase)
-                .font(.subheadline).foregroundStyle(.secondary)
+            // The step, named by the stage itself rather than by whatever
+            // sentence the worker happened to write.
+            HStack(spacing: 6) {
+                if let stage = status.stage, status.state == .busy {
+                    Image(systemName: stage.symbol)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(status.headline)
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
 
             if status.isBusy {
-                // Determinate where a fraction is known, indeterminate where
-                // it is not, rather than inventing a number.
-                if let fraction = status.progress {
+                // Determinate only where the stage says a fraction means
+                // something and one has actually arrived.
+                if status.showsDeterminateBar, let fraction = status.progress {
                     ProgressView(value: fraction).progressViewStyle(.linear)
                 } else {
                     ProgressView().progressViewStyle(.linear)
@@ -89,7 +98,23 @@ struct WorkerPanel: View {
             if !status.detail.isEmpty {
                 Text(status.detail).font(.caption).foregroundStyle(.secondary)
             }
-            if !status.error.isEmpty {
+
+            // A failure that a person can act on says what to do. Until now
+            // every failure showed the same raw exception text, so the one
+            // worth reading -- a downloader YouTube has outgrown -- looked
+            // exactly like a flaky network.
+            if let failure = status.failure {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(failure.remedy)
+                        .font(.caption)
+                        .foregroundStyle(failure.isFixable ? .primary : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !status.error.isEmpty {
+                        Text(status.error)
+                            .font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                    }
+                }
+            } else if !status.error.isEmpty {
                 Text(status.error).font(.caption).foregroundStyle(.red).lineLimit(3)
             }
             if status.songsDone > 0 {
@@ -186,20 +211,17 @@ struct WorkerPanel: View {
     private var light: Color {
         switch status.state {
         case .idle: return .green
-        case .working, .downloadingModels: return .red
-        case .error: return .orange
-        default: return .secondary
+        case .busy, .downloadingModels: return .red
+        case .failed: return .orange
+        case .starting: return .yellow
+        case .offline: return .secondary
         }
     }
 
     private var headline: String {
         switch status.state {
-        case .idle: return "Idle"
-        case .working: return "Working"
-        case .downloadingModels: return "Getting ready"
-        case .error: return "Problem"
-        case .starting: return "Starting"
-        case .stopped: return worker.isRunning ? "Starting" : "Not running"
+        case .offline: return worker.isRunning ? "Starting" : "Not running"
+        default: return status.state.label
         }
     }
 }

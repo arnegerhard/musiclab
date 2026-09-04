@@ -227,6 +227,11 @@ def worker(entry: str, *args) -> None:
     # One container: it owns the SQLite file, and nothing else writes it.
     max_containers=1,
     scaledown_window=300,
+    # The phone asks this container something the instant it launches, so a
+    # cold start is a stall the person is watching. Snapshotting the process
+    # after the imports turns ten to twenty seconds of Python and FastAPI
+    # start-up into a restore of a page or two.
+    enable_memory_snapshot=True,
     # Mail credentials live in a secret rather than in ENVIRONMENT, which is
     # baked into the image: an API key in an image layer is an API key that
     # travels with every copy of it. Reset codes print to the log until the

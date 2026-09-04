@@ -7,12 +7,12 @@ import Observation
 /// stop independently, and a file is still there to read when one of them was
 /// not running.
 struct WorkerStatus: Codable, Equatable {
-    enum State: String, Codable {
-        case starting, idle, working, downloadingModels = "downloading_models"
-        case error, stopped
-    }
-
-    var state: State = .stopped
+    /// What this machine is. The cases live in States.swift, shared with the
+    /// phone and mirroring stems/states.py, so "busy" cannot mean one thing
+    /// here and another there.
+    var state: WorkerState = .offline
+    /// What the song it holds is, when it holds one.
+    var stage: Stage?
     var phase: String = ""
     var detail: String = ""
     var progress: Double?
@@ -20,11 +20,13 @@ struct WorkerStatus: Codable, Equatable {
     var worker: String = ""
     var server: String = ""
     var songsDone: Int = 0
+    var failure: Failure?
     var error: String = ""
     var updated: Double = 0
 
     enum CodingKeys: String, CodingKey {
-        case state, phase, detail, progress, song, worker, server, error, updated
+        case state, stage, phase, detail, progress, song, worker, server
+        case failure, error, updated
         case songsDone = "songs_done"
     }
 
@@ -34,7 +36,26 @@ struct WorkerStatus: Codable, Equatable {
         Date().timeIntervalSince1970 - updated > 90
     }
 
-    var isBusy: Bool { state == .working || state == .downloadingModels }
+    var isBusy: Bool { state == .busy || state == .downloadingModels }
+
+    /// What to put under the title. The stage knows the words for every step,
+    /// so this only has to choose which of them applies.
+    var headline: String {
+        if let failure { return failure.label }
+        if state == .busy, let stage { return stage.label }
+        return state.label
+    }
+
+    /// Whether to draw a filling bar or a moving one. A determinate stage
+    /// with no fraction yet is still indeterminate -- the number has not
+    /// arrived, and drawing zero would say the work has not started.
+    var showsDeterminateBar: Bool {
+        guard progress != nil else { return false }
+        if let stage { return stage.determinate }
+        // Fetching the models is the one bar with no song behind it, and it
+        // is the one that most needs a real number: it is a gigabyte.
+        return state == .downloadingModels
+    }
 }
 
 @Observable
@@ -79,7 +100,15 @@ final class StatusReader {
             status = WorkerStatus()
             return
         }
-        if decoded.isStale { decoded.state = .stopped; decoded.phase = "Not running" }
+        // A file that has not been touched in a minute and a half describes a
+        // process that is gone. Showing its last phase would leave "Separating"
+        // on screen forever.
+        if decoded.isStale {
+            decoded.state = .offline
+            decoded.stage = nil
+            decoded.progress = nil
+            decoded.phase = WorkerState.offline.label
+        }
         status = decoded
     }
 }

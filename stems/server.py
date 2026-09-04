@@ -221,16 +221,21 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
     def progress(event):
         kind = event.get("kind")
         if kind == "download_progress":
-            _update(job_id, progress=round(event["fraction"], 3))
+            _stage(job_id, Stage.fetching, progress=round(event["fraction"], 3))
         elif kind == "download_done":
             _stage(job_id, Stage.decoding, title=event["title"])
             _append_log(job_id, f'Downloaded "{event["title"]}"')
         elif kind == "model_load":
-            _update(job_id, phase=f'Loading model {event["model"]}')
+            # On a cold GPU container this is most of the wait, and it used to
+            # be a sentence with no state behind it -- the phone could show
+            # the words but had no way to know a bar belonged here.
+            _stage(job_id, Stage.loading_models, detail=event["model"])
         elif kind == "stage_start":
-            _update(
-                job_id,
-                phase=f'{event["title"]} ({event["index"] + 1}/{event["total"]})',
+            share = event["index"] / max(1, event["total"])
+            _stage(
+                job_id, Stage.separating,
+                detail=f'{event["title"]} ({event["index"] + 1}/{event["total"]})',
+                progress=round(share, 3),
             )
         elif kind == "stage_done":
             _append_log(job_id, f'{event["stage"]}: {", ".join(event["stems"])}')
@@ -297,6 +302,13 @@ def _enqueue(request: JobRequest, user: dict) -> str:
     # Audio that is already here needs nobody to fetch it, so the cloud can
     # take it straight away -- the one path that works with no Mac at all.
     if request.uploaded_path and wants_cloud:
+        # A GPU container has to be started and has to pull the models onto
+        # the card before it can do anything, which is a minute of apparent
+        # silence. Say so, rather than showing "Queued" at a queue of one.
+        _stage(
+            job_id, Stage.loading_models,
+            detail="Starting a GPU container",
+        )
         jobs.runner.submit(_run_job, job_id, request.model_dump())
         return job_id
 

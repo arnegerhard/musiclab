@@ -13,6 +13,10 @@ targets:
     platform: macOS
     sources:
       - path: MusiclabWorker
+      # The state vocabulary, shared verbatim with the iOS app and mirroring
+      # stems/states.py. Compiled, not copied: a second copy is a second
+      # vocabulary waiting to drift.
+      - path: ../shared/States.swift
     info:
       path: MusiclabWorker/Info.plist
       properties:
