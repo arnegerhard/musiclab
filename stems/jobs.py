@@ -15,7 +15,10 @@ from typing import Any, Callable
 
 
 #: Statuses a job never leaves.
-FINISHED = {"done", "error"}
+from .states import Stage
+
+# A job is finished when it will not change again on its own.
+FINISHED = {Stage.done.value, Stage.failed.value}
 
 
 class MemoryJobStore:
@@ -78,7 +81,7 @@ class MemoryJobStore:
         with self._lock:
             return [
                 job_id for job_id, job in self._jobs.items()
-                if job.get("status") == "awaiting_fetch" and job.get("user_id") == user_id
+                if job.get("status") == Stage.waiting_for_worker.value and job.get("user_id") == user_id
             ]
 
     def set_batch(self, batch_id: str, job_ids: list[str], user_id: str) -> None:

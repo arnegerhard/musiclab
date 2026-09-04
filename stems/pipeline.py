@@ -156,7 +156,9 @@ def run(
     else:
         emit(kind="download_start", url=url)
         source = download.fetch(
-            url, staging, progress=lambda f: emit(kind="download_progress", fraction=f)
+            url, staging,
+            progress=lambda f: emit(kind="download_progress", fraction=f),
+            emit=emit,
         )
     emit(kind="download_done", title=source.title, duration=source.duration)
 

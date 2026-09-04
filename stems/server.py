@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from . import db, jobs, match, pipeline
 from .api_auth import current_user, worker_user
 from .api_auth import router as auth_router
+from .states import Failure, Stage, WorkerState, classify
 from .config import DEFAULT_FORMAT, OUT_DIR
 
 SERVICE_TYPE = "_stems._tcp.local."
@@ -97,6 +98,41 @@ def _update(job_id: str, **fields):
     jobs.store.update(job_id, **fields)
 
 
+def _stage(
+    job_id: str,
+    stage: Stage,
+    *,
+    detail: str | None = None,
+    progress: float | None = None,
+    failure: Failure | None = None,
+    **fields,
+) -> None:
+    """Move a job to a named stage, and let the stage write its own words.
+
+    Callers used to pass a status and a sentence -- "awaiting_fetch" with
+    "Waiting for the fetch agent" -- which meant eighteen sentences existed,
+    several described the same moment differently, and no interface could tell
+    two of them apart. Now a caller names the stage and nothing else, so the
+    words are the enum's and they are the same everywhere.
+    """
+    fields["status"] = stage.value
+    fields["phase"] = failure.label if failure else stage.label
+    if detail is not None:
+        fields["detail"] = detail
+    elif failure is not None:
+        fields["detail"] = failure.remedy
+    if not stage.determinate:
+        # The stage decides, not the caller. A number here would be invented,
+        # and leaving the previous stage's behind makes a bar that stalls --
+        # both read as progress that is not happening.
+        fields["progress"] = None
+    elif progress is not None:
+        fields["progress"] = progress
+    if failure is not None:
+        fields["failure"] = failure.value
+    _update(job_id, **fields)
+
+
 def _append_log(job_id: str, message: str):
     jobs.store.append_log(job_id, message)
 
@@ -131,13 +167,15 @@ def _resolve(job_id: str, request: JobRequest) -> str | None:
         return request.url
     track = request.track
     if track is None:
-        _update(job_id, status="error", phase="Failed", error="no url or track given")
+        _stage(job_id, Stage.failed, failure=Failure.unknown,
+           error="no url or track given")
         return None
 
     _update(job_id, phase=f"Finding audio for {track.title}")
     candidates = match.search(track.title, track.artist, track.duration)
     if not candidates:
-        _update(job_id, status="error", phase="Failed", error="no match found")
+        _stage(job_id, Stage.failed, failure=Failure.no_match,
+               error="no match found")
         return None
 
     best = candidates[0]
@@ -147,7 +185,7 @@ def _resolve(job_id: str, request: JobRequest) -> str | None:
     if request.require_confident and not best.confident:
         # Separating the wrong recording wastes ten minutes and sounds wrong,
         # so an uncertain match waits for a human instead.
-        _update(job_id, status="needs_confirmation", phase="Confirm the match")
+        _stage(job_id, Stage.needs_confirmation)
         _append_log(job_id, f'Unsure: "{best.title}" scored {best.score}')
         return None
 
@@ -159,7 +197,7 @@ def _run_job(job_id: str, request: dict | JobRequest):
     """Entry point for a worker, which may be another process entirely, so the
     request arrives as plain data."""
     request = request if isinstance(request, JobRequest) else JobRequest(**request)
-    _update(job_id, status="running", phase="Starting")
+    _stage(job_id, Stage.queued)
     if request.uploaded_path:
         # Nothing to find: the audio is already here.
         _run_separation(job_id, request, url="")
@@ -168,11 +206,7 @@ def _run_job(job_id: str, request: dict | JobRequest):
     if DELEGATE_FETCH:
         # Both the search and the download have to happen somewhere YouTube
         # will answer, so the whole of it goes to the agent.
-        _update(
-            job_id,
-            status="awaiting_fetch",
-            phase="Waiting for the fetch agent",
-        )
+        _stage(job_id, Stage.waiting_for_worker)
         _append_log(job_id, "Queued for a fetch agent on a residential connection")
         return
     url = _resolve(job_id, request)
@@ -183,14 +217,14 @@ def _run_job(job_id: str, request: dict | JobRequest):
 
 def _run_separation(job_id: str, request: dict | JobRequest, url: str):
     request = request if isinstance(request, JobRequest) else JobRequest(**request)
-    _update(job_id, status="running", phase="Downloading audio")
+    _stage(job_id, Stage.fetching, progress=0.0)
 
     def progress(event):
         kind = event.get("kind")
         if kind == "download_progress":
             _update(job_id, progress=round(event["fraction"], 3))
         elif kind == "download_done":
-            _update(job_id, phase="Audio downloaded", title=event["title"], progress=0)
+            _stage(job_id, Stage.decoding, title=event["title"])
             _append_log(job_id, f'Downloaded "{event["title"]}"')
         elif kind == "model_load":
             _update(job_id, phase=f'Loading model {event["model"]}')
@@ -206,9 +240,9 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
         elif kind == "stem_missing":
             _append_log(job_id, f'Warning: {event["file"]} went missing')
         elif kind == "decode_start":
-            _update(job_id, phase="Decoding the upload")
+            _stage(job_id, Stage.decoding)
         elif kind == "analyse_start":
-            _update(job_id, phase="Measuring levels")
+            _stage(job_id, Stage.packing, detail="Measuring levels")
 
     job = jobs.store.get(job_id) or {}
     matched = job.get("match")
@@ -230,16 +264,13 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
             progress=progress,
             extra=extra,
         )
-        _update(
-            job_id,
-            status="done",
-            phase="Done",
-            slug=result.job_dir.name,
-            manifest=result.manifest,
+        _stage(
+            job_id, Stage.done, progress=1.0,
+            slug=result.job_dir.name, manifest=result.manifest,
         )
     except Exception as exc:
         traceback.print_exc()
-        _update(job_id, status="error", phase="Failed", error=str(exc))
+        _stage(job_id, Stage.failed, failure=classify(exc), error=str(exc))
     finally:
         # The upload has been decoded into the job folder; keeping the original
         # would store every song twice.
@@ -275,10 +306,9 @@ def _enqueue(request: JobRequest, user: dict) -> str:
         # will answer. Decided here rather than in the worker: dispatching a
         # GPU container only to have it park the job would cost a cold start
         # and an accelerator to do nothing.
-        jobs.store.update(
-            job_id,
-            status="awaiting_fetch",
-            phase="Waiting for a Mac" if not wants_cloud else "Waiting for a Mac to fetch it",
+        _stage(
+            job_id, Stage.waiting_for_worker,
+            detail=None if not wants_cloud else "Then the cloud separates it",
         )
         jobs.store.append_log(
             job_id,
@@ -303,7 +333,13 @@ class FetchFailure(BaseModel):
 
 
 class WorkerInfo(BaseModel):
-    """What a worker says about itself when it checks in."""
+    """What a worker says about itself when it checks in.
+
+    The heartbeat used to carry a machine's specification and one boolean for
+    whether it was busy, which is why the queue on the phone could list Macs
+    but never say what any of them was doing. It now carries the same state
+    the Mac shows in its own menu bar, so the two cannot disagree.
+    """
 
     name: str = ""
     chip: str = ""
@@ -312,6 +348,13 @@ class WorkerInfo(BaseModel):
     gpu: bool = False
     version: str = ""
     busy: bool = False
+    state: str = WorkerState.idle.value
+    stage: str = ""
+    phase: str = ""
+    detail: str = ""
+    progress: float | None = None
+    song: str = ""
+    failure: str = ""
 
 
 @app.post("/api/workers/register")
@@ -324,7 +367,48 @@ def register_worker(info: WorkerInfo, user: dict = Depends(worker_user)):
 
 @app.get("/api/workers")
 def list_workers(user: dict = Depends(current_user)):
-    return jobs.store.workers(user["id"])
+    """Every machine this account has, and what each is doing right now.
+
+    A worker that has stopped calling is reported offline rather than left
+    showing whatever it was doing when it died -- a stale "Separating" is the
+    one thing worse than saying nothing, because it never resolves.
+    """
+    live = {}
+    for worker in jobs.store.workers(user["id"]):
+        entry = dict(worker)
+        entry.setdefault("state", WorkerState.idle.value)
+        entry.setdefault("phase", WorkerState.idle.label)
+        key = entry.get("machine") or entry.get("name") or entry.get("worker_id")
+        live[key] = entry
+
+    # Every Mac this account adopted, whether or not it is switched on. A Mac
+    # that has been paired and is now silent is a fact worth showing: it is
+    # the difference between "nothing is happening" and "nothing can happen".
+    listed = []
+    seen_keys = set()
+    for machine in db.sessions_with_scope(user["id"], "worker"):
+        key = machine.get("machine") or machine.get("label")
+        entry = live.get(key)
+        if entry is None:
+            entry = {
+                "worker_id": "",
+                "name": machine.get("label") or "A Mac",
+                "machine": machine.get("machine") or "",
+                "state": WorkerState.offline.value,
+                "phase": WorkerState.offline.label,
+                "stage": "", "detail": "", "song": "", "progress": None,
+                "seen": machine.get("last_seen"),
+            }
+        entry = dict(entry)
+        entry["pairing_id"] = machine.get("id")
+        entry.setdefault("name", machine.get("label") or "A Mac")
+        listed.append(entry)
+        seen_keys.add(key)
+
+    # A worker running against this account without a pairing row -- a
+    # development build, say. Better shown than silently dropped.
+    listed.extend(e for k, e in live.items() if k not in seen_keys)
+    return listed
 
 
 @app.get("/api/work/next")
@@ -337,18 +421,17 @@ def next_work(worker_id: str = "", user: dict = Depends(worker_user)):
     """
     for job_id in jobs.store.awaiting_fetch(user["id"]):
         job = jobs.store.get(job_id)
-        if job is None or job.get("status") != "awaiting_fetch":
+        if job is None or job.get("status") != Stage.waiting_for_worker.value:
             continue
         # Asked for in the cloud: this Mac may fetch it, but the separating
         # belongs to the GPU. A fetch agent will take it instead.
         if job.get("request", {}).get("destination") == "cloud":
             continue
-        jobs.store.update(
-            job_id,
-            status="claimed",
-            phase="Separating on a Mac",
-            worker_id=worker_id,
-            claimed_at=time.time(),
+        # The worker will say which stage it is really in within seconds;
+        # until its first report this is the honest answer.
+        _stage(
+            job_id, Stage.fetching, progress=0.0,
+            worker_id=worker_id, claimed_at=time.time(),
         )
         request = job.get("request", {})
         return {
@@ -432,15 +515,22 @@ async def deliver_work(
     jobs.publish()
 
     manifest = json.loads((destination / "manifest.json").read_text())
-    jobs.store.update(
-        job_id, status="done", phase="Done", slug=safe, manifest=manifest,
+    _stage(
+        job_id, Stage.done, progress=1.0, slug=safe, manifest=manifest,
         title=manifest.get("title"),
     )
     return {"ok": True}
 
 
 class WorkProgress(BaseModel):
-    """What the machine doing the separation is up to, in its own words."""
+    """What the machine doing the separation is up to.
+
+    `stage` is the whole point: the worker used to send a sentence, so the
+    phone could print it and nothing more. A named stage can be reasoned
+    about -- which bar to draw, whether a fraction means anything, whether
+    this is the step that fails when a downloader goes stale.
+    """
+    stage: str = ""
     phase: str = ""
     detail: str = ""
     progress: float | None = None
@@ -454,13 +544,26 @@ def work_progress(job_id: str, body: WorkProgress, user: dict = Depends(worker_u
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
-    _update(
-        job_id,
-        phase=body.phase or job.get("phase", ""),
-        detail=body.detail,
-        progress=body.progress,
-        worker_name=body.worker,
-    )
+    # An unrecognised stage is a worker newer or older than this server. Its
+    # words are still worth showing, so keep the sentence and leave the stage
+    # as it was rather than writing a value nothing can interpret.
+    try:
+        stage = Stage(body.stage)
+    except ValueError:
+        stage = None
+    if stage is not None:
+        _stage(
+            job_id, stage, detail=body.detail, progress=body.progress,
+            worker_name=body.worker,
+        )
+    else:
+        _update(
+            job_id,
+            phase=body.phase or job.get("phase", ""),
+            detail=body.detail,
+            progress=body.progress,
+            worker_name=body.worker,
+        )
     jobs.publish()
     return {"ok": True}
 
@@ -471,10 +574,7 @@ def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_use
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
-    jobs.store.update(
-        job_id, status="awaiting_fetch", phase="Waiting for a worker",
-        worker_id=None,
-    )
+    _stage(job_id, Stage.waiting_for_worker, worker_id=None)
     jobs.store.append_log(job_id, f"A worker gave up: {body.error}")
     return {"ok": True}
 
@@ -484,13 +584,13 @@ def next_fetch(user: dict = Depends(worker_user)):
     """Claim the oldest job waiting to be fetched, for this user only."""
     for job_id in jobs.store.awaiting_fetch(user["id"]):
         job = jobs.store.get(job_id)
-        if job is None or job.get("status") != "awaiting_fetch":
+        if job is None or job.get("status") != Stage.waiting_for_worker.value:
             continue
         # A fetch agent only downloads; the GPU separates afterwards. That is
         # what "in the cloud" asked for, so leave the rest to a full worker.
         if job.get("request", {}).get("destination") != "cloud":
             continue
-        jobs.store.update(job_id, status="fetching", phase="Fetching the audio")
+        _stage(job_id, Stage.fetching, progress=0.0)
         return {
             "job_id": job_id,
             "url": job.get("request", {}).get("url"),
@@ -505,7 +605,7 @@ def fetch_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_us
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
-    _update(job_id, status="error", phase="Failed", error=body.error)
+    _stage(job_id, Stage.failed, failure=classify(body.error), error=body.error)
     return {"ok": True}
 
 
@@ -632,7 +732,7 @@ def cancel_job(job_id: str, user: dict = Depends(current_user)):
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
-    _update(job_id, status="error", phase="Cancelled", error="Cancelled")
+    _stage(job_id, Stage.failed, failure=Failure.cancelled, error="Cancelled")
     jobs.publish()
     return {"ok": True}
 
@@ -652,7 +752,7 @@ def confirm_job(job_id: str, choice: ConfirmRequest, user: dict = Depends(curren
     )
     if chosen is None:
         raise HTTPException(400, "that match was not offered for this job")
-    jobs.store.update(job_id, match=chosen, status="queued", phase="Queued")
+    _stage(job_id, Stage.queued, match=chosen)
 
     jobs.runner.submit(_run_separation, job_id, job["request"], chosen["url"])
     return {"ok": True}

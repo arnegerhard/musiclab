@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import download, match, models, pipeline
 from .media import ensure_on_path
+from .states import Failure, Stage, classify
 from .status import Status
 
 
@@ -212,9 +213,25 @@ class Worker(Agent):
         }
 
     def register(self, busy: bool = False) -> str:
-        reply = self._post_json(
-            "/api/workers/register", {**self.describe(), "busy": busy}
-        )
+        """Check in, carrying whatever this Mac is doing at the moment.
+
+        The heartbeat is the only thing the server hears from an idle worker,
+        so it is also the only chance to say what state it is in. Sending the
+        machine's own status here is what lets the phone's queue and the Mac's
+        menu bar agree without a second channel.
+        """
+        state = self.status.snapshot() if self.status else {}
+        reply = self._post_json("/api/workers/register", {
+            **self.describe(),
+            "busy": busy,
+            "state": state.get("state") or "",
+            "stage": state.get("stage") or "",
+            "phase": state.get("phase") or "",
+            "detail": state.get("detail") or "",
+            "progress": state.get("progress"),
+            "song": state.get("song") or "",
+            "failure": state.get("failure") or "",
+        })
         return reply.get("worker_id", "")
 
     def claim(self) -> dict | None:
@@ -235,7 +252,8 @@ class Worker(Agent):
         job_id = job["job_id"]
         url, track = job.get("url"), job.get("track")
         title = (track or {}).get("title", "") if track else ""
-        self.status.working("Finding the song", song=title, progress=0.02)
+        self.status.working(Stage.fetching, detail="Finding the song",
+                            song=title, progress=0.02)
 
         if not url and track:
             progress(f"  matching \"{track['title']}\"")
@@ -255,12 +273,13 @@ class Worker(Agent):
             uploaded = None
             if job.get("source_path"):
                 progress("  collecting the uploaded audio")
-                self.status.working("Collecting the audio", song=title, progress=0.04)
+                self.status.working(Stage.fetching, detail="Collecting the audio",
+                                    song=title, progress=0.04)
                 uploaded = out / "source"
                 self._download(job["source_path"], uploaded)
 
             progress("  separating locally")
-            self.status.working("Separating", song=title, progress=0.05)
+            self.status.working(Stage.separating, song=title, progress=0.05)
             result = pipeline.run(
                 url,
                 out_dir=out,
@@ -273,13 +292,13 @@ class Worker(Agent):
 
             bundle = out / "result.tar"
             progress("  packing")
-            self.status.working("Packing the stems", song=self._song, progress=0.9)
+            self.status.working(Stage.packing, song=self._song, progress=0.9)
             with tarfile.open(bundle, "w") as tar:
                 tar.add(result.job_dir, arcname=result.job_dir.name)
             size = bundle.stat().st_size / 1e6
             progress(f"  uploading {size:.0f} MB")
             self.status.working(
-                "Sending the stems back", detail=f"{size:.0f} MB",
+                Stage.uploading, detail=f"{size:.0f} MB",
                 song=self._song, progress=0.95,
             )
             self._post_file(
@@ -306,6 +325,7 @@ class Worker(Agent):
             self._post_json(
                 f"/api/work/{self._job_id}/progress",
                 {
+                    "stage": state.get("stage") or "",
                     "phase": state.get("phase", ""),
                     "detail": state.get("detail", ""),
                     "progress": state.get("progress"),
@@ -316,32 +336,47 @@ class Worker(Agent):
             pass
 
     def _note(self, event: dict, progress) -> None:
-        """Turn pipeline events into something a person can read."""
+        """Turn pipeline events into a named stage and a fraction.
+
+        Every branch names a Stage rather than writing a sentence, so the Mac
+        panel, the queue on the phone and the server all describe this moment
+        with the same word. The fractions divide one bar across the whole
+        song: fetching owns the first tenth, separating the middle, packing
+        the rest.
+        """
         kind = event.get("kind")
         if kind == "download_progress":
             self.status.working(
-                "Downloading the song", song=self._song,
+                Stage.fetching, song=self._song,
                 progress=0.02 + 0.06 * float(event.get("fraction", 0)),
             )
+        elif kind == "decode_start":
+            # No fraction: ffmpeg reports none, and a bar that crawls on
+            # invented numbers is worse than an honest spinner.
+            self.status.working(Stage.decoding, song=self._song)
         elif kind == "download_done":
             self._song = event.get("title", self._song)
-            progress(f"    got \"{self._song}\"")
-            self.status.working("Downloaded", song=self._song, progress=0.08)
+            progress(f'    got "{self._song}"')
+        elif kind == "model_load":
+            # Minutes on a cold Mac, and until now it read as a hang: the
+            # pipeline has always emitted this and nothing listened.
+            self.status.working(
+                Stage.loading_models, detail=event.get("model", ""),
+                song=self._song,
+            )
         elif kind == "stage_start":
             progress(f"    {event['title']}")
-            # The three stages occupy the middle of the bar.
             share = event.get("index", 0) / max(1, event.get("total", 1))
             self.status.working(
-                "Separating", detail=event["title"], song=self._song,
+                Stage.separating, detail=event["title"], song=self._song,
                 progress=0.10 + 0.70 * share,
             )
         elif kind == "encode_start":
-            self.status.working(
-                "Encoding the stems", song=self._song, progress=0.82
-            )
+            self.status.working(Stage.packing, song=self._song, progress=0.82)
         elif kind == "analyse_start":
             self.status.working(
-                "Measuring levels", song=self._song, progress=0.88
+                Stage.packing, detail="Measuring levels",
+                song=self._song, progress=0.88,
             )
         self._report()
 
@@ -386,7 +421,7 @@ class Worker(Agent):
                         self._done += 1
                     except Exception as exc:
                         progress(f"  failed: {exc}")
-                        self.status.failed(str(exc)[:200])
+                        self.status.failed(str(exc)[:200], classify(exc))
                     finally:
                         self._job_id = ""
                         self.status.idle(songs_done=self._done)
@@ -413,7 +448,7 @@ class Worker(Agent):
                 self.handle(job, progress=progress)
             except Exception as exc:
                 progress(f"  failed: {exc}")
-                self.status.failed(str(exc)[:200])
+                self.status.failed(str(exc)[:200], classify(exc))
                 try:
                     self._post_json(f"/api/work/{job['job_id']}/failed", {"error": str(exc)})
                 except Exception:

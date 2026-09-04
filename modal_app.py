@@ -163,12 +163,16 @@ class ModalJobStore:
         return found
 
     def awaiting_fetch(self, user_id: str) -> list[str]:
+        from stems.states import Stage
+
         found = []
         for key in self._d.keys():
             if not str(key).startswith("job:"):
                 continue
             job = self._d.get(key)
-            if job and job.get("status") == "awaiting_fetch" and job.get("user_id") == user_id:
+            if (job
+                    and job.get("status") == Stage.waiting_for_worker.value
+                    and job.get("user_id") == user_id):
                 found.append(str(key)[4:])
         return found
 

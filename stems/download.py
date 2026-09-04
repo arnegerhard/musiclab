@@ -107,8 +107,13 @@ def adopt(audio: Path, dest_dir: Path, metadata: dict) -> Source:
     )
 
 
-def fetch(url: str, dest_dir: Path, progress=None) -> Source:
-    """Download the best audio stream and decode it to a 44.1kHz stereo WAV."""
+def fetch(url: str, dest_dir: Path, progress=None, emit=None) -> Source:
+    """Download the best audio stream and decode it to a 44.1kHz stereo WAV.
+
+    Two steps, not one, and a long song spends real time in the second.
+    `emit` is how the boundary between them gets out: without it the bar
+    sits at 100% through the whole decode, which reads as a hang.
+    """
     import subprocess
 
     import yt_dlp
@@ -148,6 +153,8 @@ def fetch(url: str, dest_dir: Path, progress=None) -> Source:
     # wants both `ffmpeg` and `ffprobe` on disk under exactly those names, and
     # a packaged worker has neither -- while this is the same normalisation an
     # uploaded file already goes through. Models want 44.1k stereo.
+    if emit is not None:
+        emit(kind="decode_start")
     wav = dest_dir / "source.wav"
     result = subprocess.run(
         [
