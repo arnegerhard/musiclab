@@ -27,3 +27,6 @@ musiclab.db-wal
 dist/
 macos/build/
 macos/*.xcodeproj/
+
+# Wrangler's local cache: this machine's Cloudflare account, not the project's.
+.wrangler/
