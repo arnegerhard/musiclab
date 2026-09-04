@@ -30,3 +30,7 @@ macos/*.xcodeproj/
 
 # Wrangler's local cache: this machine's Cloudflare account, not the project's.
 .wrangler/
+
+# uv's resolved lockfile. Nothing here installs from it: the worker bundle is
+# built with `uv pip install` against pyproject, and Modal builds its own image.
+uv.lock
