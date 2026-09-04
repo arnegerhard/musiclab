@@ -433,7 +433,14 @@ class Worker(Agent):
                 if once:
                     progress("Nothing waiting.")
                     return
-                self.register()               # heartbeat
+                # Two readers, and until now only one of them was told. The
+                # server heard this heartbeat and knew the Mac was alive; the
+                # panel on the Mac itself reads a file that nothing touched
+                # while idle, so after ninety seconds it decided its own
+                # worker had died -- which is the state it spends most of its
+                # life in.
+                self.register()
+                self.status.touch()
                 time.sleep(self.poll_seconds)
                 continue
             self._job_id = job["job_id"]

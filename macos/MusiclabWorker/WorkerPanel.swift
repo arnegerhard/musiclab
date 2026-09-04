@@ -218,9 +218,14 @@ struct WorkerPanel: View {
         }
     }
 
+    /// "Starting" is a state the worker writes about itself, in the seconds
+    /// before it says anything else. It is not what to call a process that has
+    /// been running for an hour and has gone quiet: that is a worker whose
+    /// status has gone stale, and saying it is starting invites waiting for
+    /// something that already happened.
     private var headline: String {
         switch status.state {
-        case .offline: return worker.isRunning ? "Starting" : "Not running"
+        case .offline: return worker.isRunning ? "Not responding" : "Not running"
         default: return status.state.label
         }
     }

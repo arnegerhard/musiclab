@@ -101,8 +101,9 @@ final class StatusReader {
             return
         }
         // A file that has not been touched in a minute and a half describes a
-        // process that is gone. Showing its last phase would leave "Separating"
-        // on screen forever.
+        // process that is gone, or one that has stopped saying anything.
+        // Either way its last phase is not true any more: leaving it up would
+        // put "Separating" on screen forever.
         if decoded.isStale {
             decoded.state = .offline
             decoded.stage = nil
