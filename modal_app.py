@@ -119,6 +119,9 @@ class ModalJobStore:
             job.update(fields)
             self._d[f"job:{job_id}"] = job
 
+    def remove(self, job_id: str) -> None:
+        self._d.pop(f"job:{job_id}", None)
+
     def append_log(self, job_id: str, message: str) -> None:
         job = self._d.get(f"job:{job_id}")
         if job is not None:

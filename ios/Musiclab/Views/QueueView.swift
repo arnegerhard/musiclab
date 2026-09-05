@@ -9,16 +9,12 @@ struct QueueView: View {
     @State private var pairing = false
 
     var body: some View {
+        // The empty state is an overlay, not a row. As a row it shared the
+        // list with sections that appear and disappear, and SwiftUI counts a
+        // conditional static row as a section of its own: the row leaving as
+        // two jobs arrived was one section emptying while another filled, in a
+        // single update, which UICollectionView refuses.
         List {
-            if queue.jobs.isEmpty {
-                ContentUnavailableView(
-                    "Nothing in the queue",
-                    systemImage: "checkmark.circle",
-                    description: Text("Songs you add appear here until they are separated.")
-                )
-                .listRowBackground(Color.clear)
-            }
-
             if !needsReview.isEmpty {
                 Section("Needs your call") {
                     ForEach(needsReview) { job in
@@ -59,6 +55,16 @@ struct QueueView: View {
             }
 
             machinesSection
+        }
+        .overlay {
+            if queue.jobs.isEmpty && queue.machines.isEmpty {
+                ContentUnavailableView(
+                    "Nothing in the queue",
+                    systemImage: "checkmark.circle",
+                    description: Text("Songs you add appear here until they "
+                                      + "are separated.")
+                )
+            }
         }
         .navigationTitle("Queue")
         // The machines that do this work belong beside the work, not in the

@@ -20,10 +20,14 @@ struct LibraryView: View {
     private let ticker = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        // Only the songs live in the list. "Loading", "nothing here" and
+        // "that failed" are states of the whole screen, not rows in it -- and
+        // as rows they were a crash: SwiftUI models a conditional static row
+        // and a ForEach as separate sections, so finishing a load removed the
+        // spinner and added every song in one update, and the section holding
+        // the songs went from zero rows to several with no insertion recorded.
+        // UICollectionView asserts on exactly that.
         List {
-            if loading {
-                HStack(spacing: 12) { ProgressView(); Text("Loading…") }
-            }
             ForEach(entries) { entry in
                 Button {
                     nowPlaying.open(entry)
@@ -47,13 +51,28 @@ struct LibraryView: View {
             .onDelete { offsets in
                 confirming = offsets.first.map { entries[$0] }
             }
-            if let error {
-                // There is one server and it is not going anywhere, so the
-                // only useful offer is to ask it again.
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(error).foregroundStyle(.red).font(.callout)
-                    Button("Try again") { Task { await reload() } }
-                        .font(.callout)
+        }
+        .overlay {
+            if entries.isEmpty {
+                if loading {
+                    ProgressView()
+                } else if let error {
+                    // There is one server and it is not going anywhere, so the
+                    // only useful offer is to ask it again.
+                    VStack(spacing: 10) {
+                        Text(error)
+                            .foregroundStyle(.red).font(.callout)
+                            .multilineTextAlignment(.center)
+                        Button("Try again") { Task { await reload() } }
+                    }
+                    .padding(40)
+                } else {
+                    ContentUnavailableView(
+                        "No songs yet",
+                        systemImage: "square.stack.3d.up",
+                        description: Text("Add one and it appears here once it "
+                                          + "has been separated.")
+                    )
                 }
             }
         }

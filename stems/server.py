@@ -783,17 +783,21 @@ def active_jobs(user: dict = Depends(current_user)):
 
 @app.delete("/api/jobs/{job_id}")
 def cancel_job(job_id: str, user: dict = Depends(current_user)):
-    """Take a job out of the queue.
+    """Take a job out of the queue, and mean it.
 
-    A worker already separating it will still deliver, and the stems are kept
-    -- this is about the list, not about killing work in flight. It is also
-    the only way to clear a job whose worker died holding it, since nothing
-    reclaims a stale claim.
+    This used to mark the job cancelled rather than remove it, which worked
+    only because a failed job counted as finished and so left the list on its
+    own. Now that a failure stays visible until it has been read, marking it
+    is not removing it: swiping one away left it exactly where it was, and
+    nothing could ever be cleared.
+
+    A worker already separating it will still finish and still deliver; the
+    stems are kept. This is about the list.
     """
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
-    _stage(job_id, Stage.failed, failure=Failure.cancelled, error="Cancelled")
+    jobs.store.remove(job_id)
     jobs.publish()
     return {"ok": True}
 

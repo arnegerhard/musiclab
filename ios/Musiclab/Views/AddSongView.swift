@@ -38,15 +38,18 @@ struct AddSongView: View {
             fileSection
             if hasMac { servicesSection } else { noMacSection }
             if !basket.isEmpty { chosenSection }
-
+        }
+        // Not rows. A confirmation and an error are momentary, and as
+        // conditional sections in the same list as one that gains several
+        // items at once -- picking three files adds three -- they made two
+        // sections change shape in a single update, which is the diff
+        // UICollectionView refuses to accept.
+        .safeAreaInset(edge: .top) {
             if let added {
-                Section {
-                    Label(added, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green).font(.callout)
-                }
-            }
-            if let error {
-                Section { Text(error).foregroundStyle(.red).font(.callout) }
+                notice(added, systemImage: "checkmark.circle.fill", tint: .green)
+            } else if let error {
+                notice(error, systemImage: "exclamationmark.triangle.fill",
+                       tint: .red)
             }
         }
         .navigationTitle("Add a song")
@@ -165,6 +168,19 @@ struct AddSongView: View {
             appleRow
             spotifyRow
         }
+    }
+
+    private func notice(
+        _ text: String, systemImage: String, tint: Color
+    ) -> some View {
+        Label(text, systemImage: systemImage)
+            .font(.callout)
+            .foregroundStyle(tint)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(.bar)
     }
 
     // MARK: - What has been chosen

@@ -49,6 +49,10 @@ class MemoryJobStore:
             if job_id in self._jobs:
                 self._jobs[job_id].update(fields)
 
+    def remove(self, job_id: str) -> None:
+        with self._lock:
+            self._jobs.pop(job_id, None)
+
     def append_log(self, job_id: str, message: str) -> None:
         with self._lock:
             if job_id in self._jobs:
