@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from . import db, jobs, match, pipeline
 from .api_auth import current_user, worker_user
 from .api_auth import router as auth_router
-from .states import Failure, Stage, WorkerState, classify
+from .states import Failure, Stage, WorkerState, classify, parse_stage
 from .config import DEFAULT_FORMAT, OUT_DIR
 
 
@@ -29,6 +29,12 @@ from .config import DEFAULT_FORMAT, OUT_DIR
 # enough to ride out a flaky network and few enough that a permanent problem
 # surfaces in under a minute rather than never.
 MAX_ATTEMPTS = 3
+
+# How long a job may sit in a working stage without its worker saying anything
+# before it is assumed dead and offered to somebody else. A worker reports on
+# every pipeline event and touches its status every twenty seconds, so three
+# minutes of silence is a machine that has gone, not one that is busy.
+STALE_CLAIM_SECONDS = 180.0
 
 DELEGATE_FETCH = os.environ.get("STEMS_DELEGATE_FETCH", "0").strip() not in ("0", "", "false", "no")
 
@@ -99,6 +105,9 @@ class ConfirmRequest(BaseModel):
 
 
 def _update(job_id: str, **fields):
+    # Every write stamps the clock, which is what makes a stalled job
+    # distinguishable from a slow one.
+    fields.setdefault("updated_at", time.time())
     jobs.store.update(job_id, **fields)
 
 
@@ -786,6 +795,35 @@ def create_job(request: JobRequest, user: dict = Depends(current_user)):
     return {"id": _enqueue(request, user)}
 
 
+def _reclaim_stale(user_id: str) -> None:
+    """Offer a job again when the machine holding it has gone quiet.
+
+    Nothing used to: a worker killed mid-download left its job saying
+    "Downloading the audio" for ever, and the only way to clear it was to
+    delete it. The song was still wanted; there was simply nobody fetching it.
+    """
+    now = time.time()
+    for job in jobs.store.active(user_id):
+        stage = parse_stage(job.get("status"))
+        if stage is None or stage.is_terminal or stage.is_waiting:
+            continue
+        last = float(job.get("updated_at") or job.get("created_at") or now)
+        if now - last < STALE_CLAIM_SECONDS:
+            continue
+        attempts = int(job.get("attempts") or 0) + 1
+        if attempts > MAX_ATTEMPTS:
+            _stage(
+                job["id"], Stage.failed, failure=Failure.fetch_failed,
+                error="No machine finished this one.", attempts=attempts,
+            )
+        else:
+            _stage(job["id"], Stage.waiting_for_worker, worker_id=None,
+                   attempts=attempts)
+            jobs.store.append_log(
+                job["id"], "The machine holding this went quiet; offering it again"
+            )
+
+
 @app.get("/api/jobs")
 def active_jobs(user: dict = Depends(current_user)):
     """Everything this user is waiting on, newest first.
@@ -794,6 +832,7 @@ def active_jobs(user: dict = Depends(current_user)):
     while a Mac works through it, and until now the only way to watch was to
     stay on the screen you happened to submit from.
     """
+    _reclaim_stale(user["id"])
     jobs.refresh()
     found = jobs.store.active(user["id"])
     found.sort(key=lambda job: job.get("created_at", 0), reverse=True)

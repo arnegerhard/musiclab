@@ -9,7 +9,16 @@ final class WorkerProcess {
     /// Whether this Mac has a credential. Observed, so the panel actually
     /// redraws when it changes -- reading the file inside `body` did not,
     /// because deleting a file invalidates no SwiftUI state.
-    private(set) var isPaired = WorkerProcess.loadConfiguration() != nil
+    /// A pairing is a server to talk to *and* a credential to talk with.
+    ///
+    /// This used to be the configuration alone, which made a Mac holding a
+    /// config whose token it cannot read look paired: bootstrap called
+    /// start(), start() found no token and returned, and the app sat there
+    /// having neither run a worker nor offered to pair, saying nothing. That
+    /// is the state an Xcode build lands in, because a keychain item written
+    /// by the signed app is not readable by an ad-hoc one.
+    private(set) var isPaired =
+        WorkerProcess.loadConfiguration() != nil && Keychain.read() != nil
 
     private var process: Process?
     /// Whether the worker is meant to be running. A process that dies while
@@ -34,13 +43,45 @@ final class WorkerProcess {
     }
 
     /// The interpreter shipped inside this bundle.
-    private static var python: URL {
+    private static var bundledPython: URL {
         Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/python/bin/python3.12")
     }
 
+    /// The interpreter to run the worker with.
+    ///
+    /// An Xcode build has no bundled Python -- the packaging script is what
+    /// puts one there -- so running from Xcode used to start no worker at
+    /// all, silently, and advertise for pairing instead. MUSICLAB_PYTHON
+    /// points at a checkout's own venv, which makes Run in Xcode a way to
+    /// exercise a change without repackaging 1.1 GB to see it.
+    static var python: URL {
+        for candidate in [
+            // An explicit override, for pointing at any interpreter.
+            ProcessInfo.processInfo.environment["MUSICLAB_PYTHON"],
+            // Filled in by Debug builds from the checkout's path; empty in a
+            // packaged one, which must only ever use its own.
+            Bundle.main.object(forInfoDictionaryKey: "MusiclabDevelopmentPython")
+                as? String,
+        ] {
+            if let path = candidate, !path.isEmpty,
+               FileManager.default.isExecutableFile(atPath: path) {
+                return URL(fileURLWithPath: path)
+            }
+        }
+        return bundledPython
+    }
+
+    /// Whether there is an interpreter to run at all, wherever it came from.
     static var isPackaged: Bool {
         FileManager.default.fileExists(atPath: python.path)
+    }
+
+    /// Whether the worker is borrowing a checkout's interpreter rather than
+    /// one of its own. Worth saying on screen: it is the difference between
+    /// testing this build and testing the one on disk.
+    static var isUsingDevelopmentPython: Bool {
+        python != bundledPython
     }
 
     struct Configuration: Codable {
@@ -67,9 +108,19 @@ final class WorkerProcess {
     // MARK: - Lifecycle
 
     func start() {
-        guard !isRunning, let config = Self.loadConfiguration(),
-              let token = Keychain.read()
-        else { return }
+        guard !isRunning else { return }
+        guard let config = Self.loadConfiguration() else {
+            lastError = "This Mac has not been paired yet."
+            return
+        }
+        guard let token = Keychain.read() else {
+            // Not a silent return: something is wrong that a person can act
+            // on, by pairing this build once.
+            lastError = "This Mac is paired, but its credential cannot be "
+                      + "read. Pair it again."
+            isPaired = false
+            return
+        }
 
         try? FileManager.default.createDirectory(
             at: Self.logURL.deletingLastPathComponent(), withIntermediateDirectories: true

@@ -22,6 +22,8 @@
 	<string>1</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>MusiclabDevelopmentPython</key>
+	<string>$(MUSICLAB_DEV_PYTHON)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 </dict>
