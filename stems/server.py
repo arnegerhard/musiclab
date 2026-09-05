@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from . import db, jobs, match, pipeline
 from .api_auth import current_user, worker_user
 from .api_auth import router as auth_router
+from .progress import interpret
 from .states import Failure, Stage, Where, WorkerState, classify, parse_stage
 from .config import DEFAULT_FORMAT, OUT_DIR
 
@@ -241,63 +242,31 @@ def _run_job(job_id: str, request: dict | JobRequest):
 
 def _run_separation(job_id: str, request: dict | JobRequest, url: str):
     request = request if isinstance(request, JobRequest) else JobRequest(**request)
-    _stage(job_id, Stage.fetching, progress=0.0)
+    # Audio that arrived from a Mac, rather than something to fetch here.
+    handed_over = bool(request.uploaded_path)
+    if not handed_over:
+        # Only when this container is the one doing the fetching. Audio handed
+        # over by a Mac has already been downloaded, and saying so again put
+        # "Downloading the audio" on screen after the models had started.
+        _stage(job_id, Stage.fetching, where=Where.cloud, progress=0.0)
 
     def progress(event):
-        """Every step here runs on the separating machine -- in production a
-        GPU container, which is why each one says so. Fractions are within the
-        step, not across the song: a bar that crawls from 0.10 to 0.12 over
-        four minutes reads as broken, while "2 of 3 models" reads as work."""
-        kind = event.get("kind")
-        if kind == "download_progress":
-            _stage(job_id, Stage.fetching, where=Where.cloud,
-                   progress=round(event["fraction"], 3))
-        elif kind == "download_done":
-            _stage(job_id, Stage.decoding, where=Where.cloud,
-                   title=event["title"])
-            _append_log(job_id, f'Downloaded "{event["title"]}"')
-        elif kind == "decode_start":
-            _stage(job_id, Stage.decoding, where=Where.cloud)
-        elif kind == "model_load":
-            # On a cold GPU container this is most of the wait.
-            done = event.get("index", 0)
-            total = max(1, event.get("total", 1))
-            _stage(
-                job_id, Stage.loading_models, where=Where.cloud,
-                detail=event["model"], progress=round(done / total, 3),
-            )
-        elif kind == "model_ready":
-            total = max(1, event.get("total", 1))
-            index = event.get("index", 0)
-            _stage(
-                job_id, Stage.separating, where=Where.cloud,
-                detail=f"{index + 1} of {total}",
-                progress=round(index / total, 3),
-            )
-        elif kind == "stage_start":
-            total = max(1, event["total"])
-            _stage(
-                job_id, Stage.separating, where=Where.cloud,
-                detail=f'{event["title"]} ({event["index"] + 1} of {total})',
-                progress=round(event["index"] / total, 3),
-            )
-        elif kind == "stage_done":
-            _append_log(job_id, f'{event["stage"]}: {", ".join(event["stems"])}')
-        elif kind == "stage_skipped":
-            _append_log(job_id, f'Skipped {event["stage"]}: {event["reason"]}')
-        elif kind == "stem_missing":
-            _append_log(job_id, f'Warning: {event["file"]} went missing')
-        elif kind == "analyse_start":
-            _stage(job_id, Stage.measuring, where=Where.cloud)
-        elif kind == "encode_start":
-            _stage(job_id, Stage.packing, where=Where.cloud, progress=0.0)
-        elif kind == "encode_progress":
-            total = max(1, event["total"])
-            _stage(
-                job_id, Stage.packing, where=Where.cloud,
-                detail=f'{event["done"]} of {total}',
-                progress=round(event["done"] / total, 3),
-            )
+        """Straight to the one interpreter. This used to be a second copy of
+        it, differing from the agent's in ways nobody could see until a bar
+        stopped moving.
+
+        Except the fetching. When a Mac has handed the audio over, this
+        container downloads nothing and decodes only to normalise what it was
+        given -- but the pipeline emits the same events either way, so it
+        announced a download that had already finished on another machine and
+        a decode that had already happened, both after the models had started
+        loading. Steps going backwards, and nobody's news.
+        """
+        if handed_over and event.get("kind", "").startswith(
+            ("download_", "decode_")
+        ):
+            return
+        _apply_event(job_id, event, Where.cloud)
 
     job = jobs.store.get(job_id) or {}
     matched = job.get("match")
@@ -675,6 +644,42 @@ def work_progress(job_id: str, body: WorkProgress, user: dict = Depends(worker_u
     return {"ok": True}
 
 
+class WorkEvent(BaseModel):
+    """One thing that happened, in the machine's own terms.
+
+    Deliberately not a stage: a worker says what it did -- downloaded a
+    fraction, loaded a model, started encoding -- and the server decides what
+    that is called. When both ends decided, they disagreed.
+    """
+
+    kind: str
+    fraction: float | None = None
+    index: int | None = None
+    total: int | None = None
+    done: int | None = None
+    megabytes: float | None = None
+    model: str = ""
+    title: str = ""
+    stage: str = ""
+    reason: str = ""
+    stems: list[str] = []
+    worker: str = ""
+
+
+@app.post("/api/work/{job_id}/event")
+def work_event(job_id: str, body: WorkEvent, user: dict = Depends(worker_user)):
+    """Something happened on a machine. Returns what to show for it."""
+    job = jobs.store.get(job_id)
+    if job is None or job.get("user_id") != user["id"]:
+        raise HTTPException(404, "no such job")
+    event = {k: v for k, v in body.model_dump().items() if v not in (None, "", [])}
+    if body.worker:
+        jobs.store.update(job_id, worker_name=body.worker)
+    visible = _apply_event(job_id, event, Where.mac)
+    jobs.publish()
+    return visible
+
+
 @app.post("/api/work/{job_id}/failed")
 def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_user)):
     """Hand the job back, or fail it, depending on why the worker stopped.
@@ -877,6 +882,56 @@ def _prune_old_jobs() -> None:
     prune = getattr(jobs.store, "prune", None)
     if prune:
         prune(now - KEEP_FINISHED_SECONDS)
+
+
+def _apply_event(job_id: str, event: dict, where: Where) -> dict:
+    """Understand one event from a machine doing work, and record it.
+
+    The only place an event becomes a stage. Both the Mac, which reports over
+    HTTP, and the GPU container, which is in this process, come through here,
+    so there is one answer to what any given moment is called.
+    """
+    update = interpret(event)
+    if update is None:
+        return {}
+
+    if update.note:
+        jobs.store.append_log(job_id, update.note)
+    if update.stage is None:
+        return {}
+
+    job = jobs.store.get(job_id) or {}
+    current = parse_stage(job.get("status"))
+
+    # A report that would move the song backwards is a late one. Reports are
+    # rate limited, so the last from a Mac can arrive after the audio has been
+    # handed over and the cloud has started. Going back happens on a reclaim.
+    if current is not None and current.order > update.stage.order >= 0:
+        return _visible(jobs.store.get(job_id) or {})
+
+    extra: dict = {}
+    if update.title:
+        extra["title"] = update.title
+    _stage(
+        job_id, update.stage, where=where, detail=update.detail,
+        progress=update.fraction, attempts=0, **extra,
+    )
+    return _visible(jobs.store.get(job_id) or {})
+
+
+def _visible(job: dict) -> dict:
+    """What a machine should show about the song it is holding.
+
+    Handed back in the reply, so a worker does not have to work out for itself
+    what it is doing: it reports what happened and is told what that means.
+    """
+    return {
+        "stage": job.get("status") or "",
+        "phase": job.get("phase") or "",
+        "detail": job.get("detail") or "",
+        "progress": job.get("progress"),
+        "title": job.get("title") or "",
+    }
 
 
 def _reclaim_stale(user_id: str) -> None:

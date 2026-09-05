@@ -34,6 +34,8 @@ class Agent:
         self.worker_id = ""
         self.status = None
         self._song = ""
+        self._name = ""
+        self._last_report_error = ""
         # Whoever started this. Checked while idle so an orphan stops itself.
         self._parent_pid = __import__("os").getppid()
         self._song = ""
@@ -119,22 +121,49 @@ class Agent:
             return None
         return job if job.get("job_id") else None
 
-    def say(self, stage: Stage, detail: str = "",
-            progress: float | None = None, song: str | None = None) -> None:
-        """Report a stage, to whoever is listening.
+    # yt-dlp calls its progress hook for every chunk it receives, and every
+    # report is an HTTPS round trip: sending one per chunk turned a two second
+    # download into thirty-five bytes a second. Only these two arrive at that
+    # rate, and only these two are worth dropping -- everything else is a step
+    # changing, which must always get through.
+    CHATTY_EVENTS = frozenset({"download_progress", "encode_progress"})
+    REPORT_INTERVAL_SECONDS = 1.0
 
-        A fetch errand used to say nothing at all: it printed to the log and
-        nothing else, so a Mac downloading a song for the cloud sat there
-        looking idle in its own menu bar and in the queue on the phone, for
-        the whole download. Both readers are fed from here.
+    def report(self, **event) -> None:
+        """Say what happened, and show what the server says it means.
+
+        The worker used to decide for itself which stage an event belonged to
+        and how full the bar should be, and so did the server, in a second
+        copy of the same table. They drifted, and every progress bug of the
+        last few days lived in the gap between them.
         """
-        if self.status is None:
+        if self.status is None or not self._job_id:
             return
-        if not self._should_report(stage.value):
+        kind = event.get("kind", "")
+        if kind in self.CHATTY_EVENTS:
+            now = time.time()
+            if now - getattr(self, "_reported_at", 0.0) < self.REPORT_INTERVAL_SECONDS:
+                return
+            self._reported_at = now
+
+        try:
+            visible = self._post_json(
+                f"/api/work/{self._job_id}/event",
+                {**event, "worker": self._name},
+            )
+        except Exception as exc:
+            # A dropped report must never fail a job, but it must not vanish
+            # either: a bare `return` here hid a missing attribute for a whole
+            # run, and the Mac's panel sat on "Idle" while it was downloading.
+            if kind != self._last_report_error:
+                self._last_report_error = kind
+                print(f"    (report {kind} failed: {exc})", flush=True)
             return
-        self.status.working(stage, detail=detail, progress=progress, song=song)
-        if report := getattr(self, "_report", None):
-            report()
+        if not visible:
+            return
+        if title := visible.get("title"):
+            self._song = title
+        self.status.apply(visible, song=self._song)
 
     def handle(self, job: dict, progress=print) -> None:
         job_id = job["job_id"]
@@ -142,7 +171,8 @@ class Agent:
         track = job.get("track")
         matched = None
         title = (track or {}).get("title", "") if track else ""
-        self.say(Stage.fetching, detail="Finding the song", song=title)
+        self._song = title
+        self.report(kind="matching")
 
         if not url and track:
             progress(f"  matching \"{track['title']}\"")
@@ -166,20 +196,12 @@ class Agent:
             # `emit(kind="decode_start")`. Taking a dict here instead meant
             # every fetch raised the moment the download finished, and the
             # only trace was a line Python was still holding in a buffer.
-            def fetching(**event) -> None:
-                kind = event.get("kind")
-                if kind == "decode_start":
-                    self.say(Stage.decoding, song=title or self._song)
-                elif kind == "download_progress":
-                    self.say(
-                        Stage.fetching, song=title or self._song,
-                        progress=float(event.get("fraction", 0)),
-                    )
-
             source = download.fetch(
                 url, Path(staging),
-                progress=lambda f: fetching(kind="download_progress", fraction=f),
-                emit=fetching,
+                progress=lambda f: self.report(
+                    kind="download_progress", fraction=f
+                ),
+                emit=lambda **event: self.report(**event),
             )
             self._song = source.title or title
             # The server re-decodes anyway, so send the compact original
@@ -192,8 +214,7 @@ class Agent:
             progress(f"  uploading {size:.0f} MB")
             # Named for where it is going: this is the Mac handing the audio
             # to the cloud, not the end of the job.
-            self.say(Stage.handing_over, detail=f"{size:.0f} MB",
-                     song=self._song)
+            self.report(kind="handing_over", megabytes=size)
             self._post_file(
                 f"/api/fetch/{job_id}",
                 audio,
@@ -337,8 +358,8 @@ class Worker(Agent):
         job_id = job["job_id"]
         url, track = job.get("url"), job.get("track")
         title = (track or {}).get("title", "") if track else ""
-        self.status.working(Stage.fetching, detail="Finding the song",
-                            song=title, progress=0.02)
+        self._song = title
+        self.report(kind="matching")
 
         if not url and track:
             progress(f"  matching \"{track['title']}\"")
@@ -358,13 +379,11 @@ class Worker(Agent):
             uploaded = None
             if job.get("source_path"):
                 progress("  collecting the uploaded audio")
-                self.status.working(Stage.fetching, detail="Collecting the audio",
-                                    song=title, progress=0.04)
+                self.report(kind="download_start")
                 uploaded = out / "source"
                 self._download(job["source_path"], uploaded)
 
             progress("  separating locally")
-            self.status.working(Stage.separating, song=title, progress=0.05)
             result = pipeline.run(
                 url,
                 out_dir=out,
@@ -377,14 +396,12 @@ class Worker(Agent):
 
             bundle = out / "result.tar"
             progress("  packing")
-            self.status.working(Stage.packing, song=self._song)
+            self.report(kind="encode_start")
             with tarfile.open(bundle, "w") as tar:
                 tar.add(result.job_dir, arcname=result.job_dir.name)
             size = bundle.stat().st_size / 1e6
             progress(f"  uploading {size:.0f} MB")
-            self.status.working(
-                Stage.uploading, detail=f"{size:.0f} MB", song=self._song,
-            )
+            self.report(kind="uploading", megabytes=size)
             self._post_file(
                 f"/api/work/{job_id}/result",
                 bundle,
@@ -402,103 +419,20 @@ class Worker(Agent):
     # it. A stage change always goes out; a moved bar waits its turn.
     REPORT_INTERVAL_SECONDS = 1.0
 
-    def _should_report(self, stage: str | None) -> bool:
-        now = time.time()
-        if stage != getattr(self, "_reported_stage", None):
-            self._reported_stage = stage
-            self._reported_at = now
-            return True
-        if now - getattr(self, "_reported_at", 0.0) < self.REPORT_INTERVAL_SECONDS:
-            return False
-        self._reported_at = now
-        return True
-
-    def _report(self) -> None:
-        """Forward the local status to the server.
-
-        The Mac shows a phase and a bar; without this the phone that asked for
-        the song sees only "Separating on a worker" for the whole ten minutes.
-        Best effort -- a dropped progress ping must never fail a job.
-        """
-        if not self._job_id or self.status is None:
-            return
-        state = self.status.snapshot()
-        try:
-            self._post_json(
-                f"/api/work/{self._job_id}/progress",
-                {
-                    "stage": state.get("stage") or "",
-                    "phase": state.get("phase", ""),
-                    "detail": state.get("detail", ""),
-                    "progress": state.get("progress"),
-                    "worker": state.get("worker", ""),
-                },
-            )
-        except Exception:
-            pass
-
     def _note(self, event: dict, progress) -> None:
-        """Turn pipeline events into a named stage and a fraction.
+        """Forward a pipeline event, and print the readable ones.
 
-        Every branch names a Stage rather than writing a sentence, so the Mac
-        panel, the queue on the phone and the server all describe this moment
-        with the same word. The fractions divide one bar across the whole
-        song: fetching owns the first tenth, separating the middle, packing
-        the rest.
-
-        Everything goes through say(), which is rate limited -- these events
-        arrive many times a second during a download, and each report is an
-        HTTPS round trip.
+        No mapping here any more. What a `model_ready` means, and how full a
+        bar should be for it, is the server's to say -- there was a second
+        copy of that table here, and it was the second copy that was wrong.
         """
         kind = event.get("kind")
-        if kind == "download_progress":
-            self.say(
-                Stage.fetching, song=self._song,
-                progress=float(event.get("fraction", 0)),
-            )
-        elif kind == "decode_start":
-            # No fraction: ffmpeg reports none, and a bar that crawls on
-            # invented numbers is worse than an honest spinner.
-            self.say(Stage.decoding, song=self._song)
-        elif kind == "download_done":
+        if kind == "download_done":
             self._song = event.get("title", self._song)
             progress(f'    got "{self._song}"')
-        elif kind == "model_load":
-            # Minutes on a cold Mac, and until now it read as a hang: the
-            # pipeline has always emitted this and nothing listened.
-            done = event.get("index", 0)
-            total = max(1, event.get("total", 1))
-            self.say(
-                Stage.loading_models, detail=event.get("model", ""),
-                song=self._song, progress=done / total,
-            )
-        elif kind == "model_ready":
-            total = max(1, event.get("total", 1))
-            index = event.get("index", 0)
-            self.say(
-                Stage.separating, song=self._song,
-                detail=f"{index + 1} of {total}", progress=index / total,
-            )
         elif kind == "stage_start":
             progress(f"    {event['title']}")
-            total = max(1, event.get("total", 1))
-            index = event.get("index", 0)
-            self.say(
-                Stage.separating, song=self._song,
-                detail=f'{event["title"]} ({index + 1} of {total})',
-                progress=index / total,
-            )
-        elif kind == "encode_start":
-            self.say(Stage.packing, song=self._song, progress=0.0)
-        elif kind == "encode_progress":
-            total = max(1, event.get("total", 1))
-            self.say(
-                Stage.packing, song=self._song,
-                detail=f'{event.get("done", 0)} of {total}',
-                progress=event.get("done", 0) / total,
-            )
-        elif kind == "analyse_start":
-            self.say(Stage.measuring, song=self._song)
+        self.report(**event)
 
     def run(self, once: bool = False, progress=print) -> None:
         ensure_on_path()
@@ -510,6 +444,7 @@ class Worker(Agent):
 
         self.worker_id = self.register()
         info = self.describe()
+        self._name = info["name"]
         self.status.set(worker=info["name"], server=self.base)
         progress(f"Worker {self.worker_id} watching {self.base}")
         progress(f"  {info['chip']}, {info['cores']} cores, GPU: {info['gpu']}")
@@ -641,7 +576,6 @@ class Worker(Agent):
         """
         while not stop.wait(20):
             self.status.touch()
-            self._report()
             try:
                 self.register(busy=True)
             except Exception:

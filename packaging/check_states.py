@@ -54,6 +54,44 @@ def swift_cases(source: str, enum: str) -> set[str]:
     return found
 
 
+def emitted_event_kinds() -> set[str]:
+    """Every `kind=` the pipeline announces, found in the source.
+
+    Cheap and literal on purpose: the point is to notice a new event that
+    nobody taught the interpreter about, which is how "Separating the stems"
+    came to never appear.
+    """
+    # `done` is the pipeline saying it has finished, which its caller acts on
+    # by using the result; there is nothing to display for it. recompress is a
+    # command line tool with its own events and no job behind them.
+    handled_elsewhere = {"done"}
+    ignore_files = {"progress.py", "server.py", "agent.py", "recompress.py"}
+
+    kinds = set()
+    for path in (ROOT / "stems").glob("*.py"):
+        if path.name in ignore_files:
+            continue
+        for match in re.finditer(r'kind="([a-z_]+)"', path.read_text()):
+            kinds.add(match.group(1))
+    return kinds - handled_elsewhere
+
+
+def check_events() -> list[str]:
+    from stems.progress import interpret
+
+    # Enough of a payload that a mapping can compute a fraction from it.
+    sample = {"fraction": 0.5, "index": 0, "total": 2, "done": 1,
+              "model": "m", "title": "t", "stage": "s", "reason": "r",
+              "stems": ["a"], "file": "f", "megabytes": 1.0}
+    problems = []
+    for kind in sorted(emitted_event_kinds()):
+        if interpret({**sample, "kind": kind}) is None:
+            problems.append(f"the pipeline emits {kind!r} and nothing reads it")
+    print(f"  events: {len(emitted_event_kinds())} emitted, "
+          f"{len(emitted_event_kinds()) - len(problems)} understood")
+    return problems
+
+
 def main() -> int:
     source = SWIFT.read_text()
     problems = []
@@ -67,6 +105,8 @@ def main() -> int:
             problems.append(f"{name}.{extra} is in Swift but not Python")
         if not (python - swift or swift - python):
             print(f"  {name}: {len(python)} states, both sides agree")
+
+    problems += check_events()
 
     for problem in problems:
         print(f"  MISMATCH: {problem}")

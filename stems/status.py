@@ -102,6 +102,27 @@ class Status:
             fields["song"] = song
         self.set(**fields)
 
+    def apply(self, visible: dict, song: str | None = None) -> None:
+        """Show what the server said this moment is called.
+
+        The worker no longer decides: it reports what happened and is told
+        what that means, so the menu bar and the phone cannot describe the
+        same moment differently.
+        """
+        stage = visible.get("stage") or None
+        fields = {
+            "state": WorkerState.busy.value,
+            "stage": stage,
+            "phase": visible.get("phase") or "",
+            "detail": visible.get("detail") or "",
+            "progress": visible.get("progress"),
+            "failure": None,
+            "error": "",
+        }
+        if song is not None:
+            fields["song"] = song
+        self.set(**fields)
+
     def downloading_models(self, done_bytes: int, total_bytes: int) -> None:
         self.set(
             state=WorkerState.downloading_models.value,
