@@ -20,7 +20,7 @@ struct QueueView: View {
                     ForEach(needsReview) { job in
                         Button { reviewing = job } label: {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(job.title ?? "Unknown").font(.callout)
+                                Text(job.displayTitle).font(.callout)
                                 Text("Not sure which recording — tap to choose")
                                     .font(.caption).foregroundStyle(.orange)
                             }
@@ -175,7 +175,7 @@ struct QueueView: View {
                     ProgressView().controlSize(.small).frame(width: 20)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(job.title ?? "Unknown").font(.callout).lineLimit(1)
+                    Text(job.displayTitle).font(.callout).lineLimit(1)
                     Text(job.headline)
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
