@@ -143,6 +143,7 @@ class Failure(str, Enum):
 
     downloader_outdated = "downloader_outdated"
     source_unavailable = "source_unavailable"
+    bad_link = "bad_link"
     no_match = "no_match"
     fetch_failed = "fetch_failed"
     separation_failed = "separation_failed"
@@ -173,6 +174,11 @@ class Failure(str, Enum):
             Failure.upload_failed, Failure.unknown,
         )
 
+    @property
+    def is_fixable(self) -> bool:
+        """Whether the person reading this can do the thing that fixes it."""
+        return self in (Failure.downloader_outdated, Failure.bad_link)
+
 
 _FAILURE_LABELS: dict[Failure, tuple[str, str]] = {
     Failure.downloader_outdated: (
@@ -183,6 +189,10 @@ _FAILURE_LABELS: dict[Failure, tuple[str, str]] = {
     Failure.source_unavailable: (
         "The song could not be reached",
         "It may be private, removed, or blocked where the Mac is.",
+    ),
+    Failure.bad_link: (
+        "That link does not point at a song",
+        "Check it opens in a browser, then paste it again.",
     ),
     Failure.no_match: (
         "No recording matched",
@@ -205,19 +215,36 @@ _FAILURE_LABELS: dict[Failure, tuple[str, str]] = {
 }
 
 
-# Phrases yt-dlp produces when YouTube has moved on and the installed copy has
-# not. They are about the extractor, never about the song, which is what makes
-# them worth telling apart: everything else here is retryable and this is not.
+# Saying "your downloader is out of date" when it is not is worse than saying
+# nothing: it sends someone to reinstall a 340 MB app over a dropped
+# connection. So the signs have to be ones yt-dlp only produces when the
+# extractor itself has actually given up.
+#
+# "nsig extraction failed" is deliberately not among them. yt-dlp prints it as
+# a warning and usually downloads anyway, so on its own it is evidence of
+# nothing; it counts only alongside a failure to extract.
 _OUTDATED_SIGNS = (
-    "nsig extraction failed",
-    "signature extraction failed",
+    "please report this issue on https://github.com/yt-dlp",
+    "please report this issue on  https://github.com/yt-dlp",
     "unable to extract yt initial data",
     "unable to extract player",
-    "player response",
-    "please report this issue on  https://github.com/yt-dlp",
-    "please report this issue on https://github.com/yt-dlp",
+    "unable to extract signature",
+    "unable to extract nsig",
+)
+
+# Anti-bot challenges. Updating often does help, but the advice is different
+# enough -- wait, or sign the downloader in -- to be worth its own answer.
+_BLOCKED_SIGNS = (
     "confirm you're not a bot",
     "confirm you are not a bot",
+    "sign in to confirm",
+)
+
+_BAD_LINK_SIGNS = (
+    "incomplete youtube id",
+    "looks truncated",
+    "is not a valid url",
+    "unsupported url",
 )
 
 _UNAVAILABLE_SIGNS = (
@@ -242,8 +269,12 @@ def classify(error: str | BaseException) -> Failure:
     text = str(error).lower()
     if not text:
         return Failure.unknown
+    if any(sign in text for sign in _BAD_LINK_SIGNS):
+        return Failure.bad_link
     if any(sign in text for sign in _OUTDATED_SIGNS):
         return Failure.downloader_outdated
+    if any(sign in text for sign in _BLOCKED_SIGNS):
+        return Failure.source_unavailable
     if any(sign in text for sign in _UNAVAILABLE_SIGNS):
         return Failure.source_unavailable
     if "no match" in text:

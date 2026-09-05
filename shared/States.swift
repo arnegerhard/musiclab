@@ -113,6 +113,7 @@ enum WorkerState: String, Codable, CaseIterable, Sendable {
 enum Failure: String, Codable, CaseIterable, Sendable {
     case downloaderOutdated = "downloader_outdated"
     case sourceUnavailable = "source_unavailable"
+    case badLink = "bad_link"
     case noMatch = "no_match"
     case fetchFailed = "fetch_failed"
     case separationFailed = "separation_failed"
@@ -124,6 +125,7 @@ enum Failure: String, Codable, CaseIterable, Sendable {
         switch self {
         case .downloaderOutdated: return "The downloader is out of date"
         case .sourceUnavailable: return "The song could not be reached"
+        case .badLink: return "That link does not point at a song"
         case .noMatch: return "No recording matched"
         case .fetchFailed: return "The download did not finish"
         case .separationFailed: return "Separating did not finish"
@@ -140,6 +142,8 @@ enum Failure: String, Codable, CaseIterable, Sendable {
                  + "Updating the Mac app fixes it; nothing is wrong with the song."
         case .sourceUnavailable:
             return "It may be private, removed, or blocked where the Mac is."
+        case .badLink:
+            return "Check it opens in a browser, then paste it again."
         case .noMatch:
             return "Nothing close enough was found. Try pasting a link instead."
         case .fetchFailed:
@@ -157,5 +161,5 @@ enum Failure: String, Codable, CaseIterable, Sendable {
 
     /// The only failure here that a person fixes by doing something other than
     /// trying again, which is worth saying differently.
-    var isFixable: Bool { self == .downloaderOutdated }
+    var isFixable: Bool { self == .downloaderOutdated || self == .badLink }
 }

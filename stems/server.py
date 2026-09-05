@@ -25,6 +25,11 @@ from .config import DEFAULT_FORMAT, OUT_DIR
 # YouTube answers a home or carrier address and challenges a datacenter one, so
 # a deployed server cannot fetch for itself. With this set it parks the job and
 # waits for an agent on a residential connection to hand the audio over.
+# How many machines get to try one song before it is called failed. Three is
+# enough to ride out a flaky network and few enough that a permanent problem
+# surfaces in under a minute rather than never.
+MAX_ATTEMPTS = 3
+
 DELEGATE_FETCH = os.environ.get("STEMS_DELEGATE_FETCH", "0").strip() not in ("0", "", "false", "no")
 
 app = FastAPI(title="musiclab")
@@ -630,12 +635,26 @@ def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_use
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
     failure = classify(body.error)
-    if failure.retryable:
-        _stage(job_id, Stage.waiting_for_worker, worker_id=None)
-        jobs.store.append_log(job_id, f"A worker gave up: {body.error}")
+
+    # Handing a job back has to be able to stop. A failure nothing recognises
+    # is retryable by default, which is right for a dropped connection and
+    # ruinous for anything permanently wrong: one malformed link went round
+    # this loop twenty-nine times, and would still be going.
+    attempts = int(job.get("attempts") or 0) + 1
+    if failure.retryable and attempts < MAX_ATTEMPTS:
+        _stage(job_id, Stage.waiting_for_worker, worker_id=None,
+               attempts=attempts)
+        jobs.store.append_log(
+            job_id,
+            f"A worker gave up (attempt {attempts} of {MAX_ATTEMPTS}): {body.error}",
+        )
     else:
+        # A retryable failure that has run out of attempts is still a fetch
+        # that did not finish, and saying so is more use than "unknown".
+        if failure.retryable:
+            failure = Failure.fetch_failed
         _stage(job_id, Stage.failed, failure=failure, error=body.error,
-               worker_id=None)
+               worker_id=None, attempts=attempts)
         jobs.store.append_log(job_id, f"{failure.label}: {body.error}")
     return {"ok": True}
 
