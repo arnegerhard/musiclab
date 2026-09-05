@@ -613,9 +613,13 @@ def work_progress(job_id: str, body: WorkProgress, user: dict = Depends(worker_u
     except ValueError:
         stage = None
     if stage is not None:
+        # Real progress clears the record of past failures. Attempts are there
+        # to stop a job circling for ever; a job that has reached a new stage
+        # is not circling, and counting a machine that died an hour ago
+        # against it can fail a download that is going perfectly.
         _stage(
             job_id, stage, detail=body.detail, progress=body.progress,
-            worker_name=body.worker,
+            worker_name=body.worker, attempts=0,
         )
     else:
         _update(
@@ -730,6 +734,11 @@ async def deliver_fetch(
             pass
     jobs.store.update(job_id, **updates)
 
+    # A GPU container has to start and pull the models onto the card before
+    # anything happens, which is a minute or more. Without this the job kept
+    # whatever the Mac last said -- "Sending the stems back" -- through all of
+    # it, so the wait looked like a stall in the wrong place entirely.
+    _stage(job_id, Stage.loading_models, detail="Starting a GPU container")
     jobs.runner.submit(_run_separation, job_id, request.model_dump(), "")
     return {"ok": True}
 

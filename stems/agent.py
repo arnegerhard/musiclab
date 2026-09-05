@@ -34,6 +34,9 @@ class Agent:
         self.worker_id = ""
         self.status = None
         self._song = ""
+        # Whoever started this. Checked while idle so an orphan stops itself.
+        self._parent_pid = __import__("os").getppid()
+        self._song = ""
         self._job_id = ""
         self._done = 0
 
@@ -95,11 +98,31 @@ class Agent:
             return None
         return job if job.get("job_id") else None
 
+    def say(self, stage: Stage, detail: str = "",
+            progress: float | None = None, song: str | None = None) -> None:
+        """Report a stage, to whoever is listening.
+
+        A fetch errand used to say nothing at all: it printed to the log and
+        nothing else, so a Mac downloading a song for the cloud sat there
+        looking idle in its own menu bar and in the queue on the phone, for
+        the whole download. Both readers are fed from here.
+        """
+        if self.status is None:
+            return
+        if not self._should_report(stage.value):
+            return
+        self.status.working(stage, detail=detail, progress=progress, song=song)
+        if report := getattr(self, "_report", None):
+            report()
+
     def handle(self, job: dict, progress=print) -> None:
         job_id = job["job_id"]
         url = job.get("url")
         track = job.get("track")
         matched = None
+        title = (track or {}).get("title", "") if track else ""
+        self.say(Stage.fetching, detail="Finding the song", song=title,
+                 progress=0.01)
 
         if not url and track:
             progress(f"  matching \"{track['title']}\"")
@@ -118,14 +141,33 @@ class Agent:
 
         with tempfile.TemporaryDirectory() as staging:
             progress(f"  downloading {url}")
-            source = download.fetch(url, Path(staging))
+
+            def fetching(event: dict) -> None:
+                if event.get("kind") == "decode_start":
+                    self.say(Stage.decoding, song=title or self._song)
+                elif event.get("kind") == "download_progress":
+                    self.say(
+                        Stage.fetching, song=title or self._song,
+                        progress=0.05 + 0.75 * float(event.get("fraction", 0)),
+                    )
+
+            source = download.fetch(
+                url, Path(staging),
+                progress=lambda f: fetching({"kind": "download_progress",
+                                             "fraction": f}),
+                emit=fetching,
+            )
+            self._song = source.title or title
             # The server re-decodes anyway, so send the compact original
             # rather than the WAV it was expanded into.
             audio = next(
                 (p for p in Path(staging).glob("source.*") if p.suffix != ".wav"),
                 source.path,
             )
-            progress(f"  uploading {audio.stat().st_size / 1e6:.1f} MB")
+            size = audio.stat().st_size / 1e6
+            progress(f"  uploading {size:.0f} MB")
+            self.say(Stage.uploading, detail=f"{size:.0f} MB",
+                     song=self._song, progress=0.9)
             self._post_file(
                 f"/api/fetch/{job_id}",
                 audio,
@@ -328,6 +370,24 @@ class Worker(Agent):
             shutil.rmtree(result.job_dir, ignore_errors=True)
         progress("  handed over")
 
+    # yt-dlp calls its progress hook for every chunk it receives -- many times
+    # a second -- and each report is an HTTPS round trip to the server. Sending
+    # one per chunk turned a two-second download into thirty-five bytes a
+    # second, because the download spent its life waiting on the reports about
+    # it. A stage change always goes out; a moved bar waits its turn.
+    REPORT_INTERVAL_SECONDS = 1.0
+
+    def _should_report(self, stage: str | None) -> bool:
+        now = time.time()
+        if stage != getattr(self, "_reported_stage", None):
+            self._reported_stage = stage
+            self._reported_at = now
+            return True
+        if now - getattr(self, "_reported_at", 0.0) < self.REPORT_INTERVAL_SECONDS:
+            return False
+        self._reported_at = now
+        return True
+
     def _report(self) -> None:
         """Forward the local status to the server.
 
@@ -360,17 +420,21 @@ class Worker(Agent):
         with the same word. The fractions divide one bar across the whole
         song: fetching owns the first tenth, separating the middle, packing
         the rest.
+
+        Everything goes through say(), which is rate limited -- these events
+        arrive many times a second during a download, and each report is an
+        HTTPS round trip.
         """
         kind = event.get("kind")
         if kind == "download_progress":
-            self.status.working(
+            self.say(
                 Stage.fetching, song=self._song,
                 progress=0.02 + 0.06 * float(event.get("fraction", 0)),
             )
         elif kind == "decode_start":
             # No fraction: ffmpeg reports none, and a bar that crawls on
             # invented numbers is worse than an honest spinner.
-            self.status.working(Stage.decoding, song=self._song)
+            self.say(Stage.decoding, song=self._song)
         elif kind == "download_done":
             self._song = event.get("title", self._song)
             progress(f'    got "{self._song}"')
@@ -379,25 +443,24 @@ class Worker(Agent):
             # pipeline has always emitted this and nothing listened.
             done = event.get("index", 0)
             total = max(1, event.get("total", 1))
-            self.status.working(
+            self.say(
                 Stage.loading_models, detail=event.get("model", ""),
                 song=self._song, progress=done / total,
             )
         elif kind == "stage_start":
             progress(f"    {event['title']}")
             share = event.get("index", 0) / max(1, event.get("total", 1))
-            self.status.working(
+            self.say(
                 Stage.separating, detail=event["title"], song=self._song,
                 progress=0.10 + 0.70 * share,
             )
         elif kind == "encode_start":
-            self.status.working(Stage.packing, song=self._song, progress=0.82)
+            self.say(Stage.packing, song=self._song, progress=0.82)
         elif kind == "analyse_start":
-            self.status.working(
+            self.say(
                 Stage.packing, detail="Measuring levels",
                 song=self._song, progress=0.88,
             )
-        self._report()
 
     def run(self, once: bool = False, progress=print) -> None:
         ensure_on_path()
@@ -459,6 +522,10 @@ class Worker(Agent):
                 self.register()
                 self.status.touch()
                 time.sleep(self.poll_seconds)
+                if self._orphaned():
+                    progress("The app that started this worker has gone.")
+                    self.status.stopped()
+                    return
                 continue
             self._job_id = job["job_id"]
             progress(f"job {job['job_id']}")
@@ -487,6 +554,21 @@ class Worker(Agent):
                 self.status.idle(songs_done=self._done)
             if once:
                 return
+
+    def _orphaned(self) -> bool:
+        """Whether the app that started this worker has gone.
+
+        A worker outlives its app: quitting the menu bar app, or killing it,
+        leaves the interpreter running, still claiming songs and still writing
+        the status file that the next app to start will read. Six of them
+        accumulated here in one afternoon, competing for the same jobs and
+        making one download look like a stall.
+
+        macOS reparents an orphan to launchd, so a parent of 1 is the signal.
+        """
+        import os
+
+        return self._parent_pid > 1 and os.getppid() != self._parent_pid
 
     def _heartbeat(self, stop: "threading.Event") -> None:
         """Say we are still alive, to both readers.
