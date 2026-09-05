@@ -54,6 +54,11 @@ class Stage(str, Enum):
             Stage.queued, Stage.waiting_for_worker, Stage.needs_confirmation
         )
 
+    #  How many steps a song passes through, at most. Not every song sees all
+    #  of them -- one separated on a Mac never hands anything to Modal -- but
+    #  the count has to be the same for every song or the numbers jump about.
+    step_count: "int"
+
     @property
     def order(self) -> int:
         """Where this sits in the run of a song, for a UI that wants to show
@@ -90,6 +95,9 @@ _ORDER: tuple[Stage, ...] = (
     Stage.packing,
     Stage.uploading,
 )
+
+
+Stage.step_count = len(_ORDER)
 
 
 _LABELS: dict[Stage, str] = {

@@ -204,6 +204,11 @@ class Agent:
                 emit=lambda **event: self.report(**event),
             )
             self._song = source.title or title
+            # The pipeline announces this when it runs the whole job, but a
+            # fetch errand calls download.fetch directly, so nothing told the
+            # server what the song was called: the queue showed the pasted
+            # link for the whole download while the Mac knew the title.
+            self.report(kind="download_done", title=self._song)
             # The server re-decodes anyway, so send the compact original
             # rather than the WAV it was expanded into.
             audio = next(

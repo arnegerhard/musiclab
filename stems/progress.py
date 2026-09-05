@@ -30,7 +30,9 @@ class Update:
     #  None where the event is worth writing down but changes nothing anyone
     #  is watching -- a missing stem is a warning, not a step.
     stage: Stage | None = None
-    detail: str = ""
+    #  "" clears the aside under the step; None leaves whatever the step
+    #  already had, for events that refine a step rather than begin one.
+    detail: str | None = ""
     #  Within this step, where the step has a countable end. None means the
     #  step is under way and cannot say how far.
     fraction: float | None = None
@@ -99,15 +101,24 @@ def interpret(event: dict) -> Update | None:
     # long part ran under the label of the step before it.
     if kind == "model_ready":
         return Update(
-            Stage.separating, detail=_of(event), fraction=_share(event),
+            Stage.separating, detail=None, fraction=_share(event),
+        )
+
+    # Inside one separation model, counted through its own chunk loop. The
+    # fraction spans the whole separating step: which model, plus how far
+    # through it.
+    if kind == "inference_progress":
+        total = float(event.get("total") or 1)
+        index = float(event.get("index") or 0)
+        within = float(event.get("fraction") or 0)
+        return Update(
+            Stage.separating, detail=None,
+            fraction=max(0.0, min(1.0, (index + within) / total)),
         )
 
     if kind == "stage_start":
-        detail = event.get("title", "")
-        counted = _of(event)
         return Update(
-            Stage.separating,
-            detail=f"{detail} ({counted})" if counted else detail,
+            Stage.separating, detail=event.get("title", ""),
             fraction=_share(event),
         )
 

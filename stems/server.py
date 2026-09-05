@@ -132,6 +132,10 @@ def _stage(
     """
     fields["status"] = stage.value
     fields["phase"] = failure.label if failure else stage.label
+    # Which of the run's steps this is, so a person can see how far through
+    # the whole thing they are rather than how far through one model.
+    fields["step"] = stage.order + 1 if stage.order >= 0 else None
+    fields["steps"] = Stage.step_count
     if where is not None:
         fields["worked_by"] = where.value
     elif stage.is_waiting or stage.is_terminal:
@@ -915,11 +919,17 @@ def _apply_event(job_id: str, event: dict, where: Where) -> dict:
     if current is not None and current.order > update.stage.order >= 0:
         return _visible(jobs.store.get(job_id) or {})
 
+    # None means "leave the aside alone", which only makes sense within a
+    # step: a new step starts with nothing to add until it says otherwise.
+    detail = update.detail
+    if detail is None:
+        detail = "" if current is not update.stage else (job.get("detail") or "")
+
     extra: dict = {}
     if update.title:
         extra["title"] = update.title
     _stage(
-        job_id, update.stage, where=where, detail=update.detail,
+        job_id, update.stage, where=where, detail=detail,
         progress=update.fraction, attempts=0, **extra,
     )
     return _visible(jobs.store.get(job_id) or {})

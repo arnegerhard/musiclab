@@ -10,6 +10,9 @@ from pathlib import Path
 
 from . import models
 from .config import SOURCE_INPUT, Stage
+import contextlib
+import importlib
+
 from .download import slugify
 
 LABEL_RE = re.compile(r"\(([^()]+)\)(?!.*\([^()]+\))")
@@ -173,7 +176,8 @@ class Cascade:
             index=index, total=total,
         )
 
-        outputs = separator.separate(str(input_path))
+        with _watched_inference(self._emit, index=index, total=total):
+            outputs = separator.separate(str(input_path))
 
         produced: list[Stem] = []
         for output in outputs:
@@ -200,3 +204,61 @@ class Cascade:
             produced.append(Stem(name=name, path=final, stage=stage.key, parent=parent))
 
         return produced
+
+
+# The separation itself is where a song spends most of its life -- eight of
+# the ten minutes a Mac takes -- and audio-separator offers no way to ask how
+# far along it is. What it does do is drive its chunks through tqdm, so that
+# is the handle: for the duration of one stage, tqdm in those modules is a
+# shim that counts the same iterations and says so.
+#
+# Patching somebody else's global is not free, and it is worth being plain
+# about why it is acceptable here: it is confined to one call, restored in a
+# finally, and falls back to doing nothing at all if the module ever stops
+# looking the way it does today. The alternative was a bar that sat at fifty
+# percent for eight minutes.
+@contextlib.contextmanager
+def _watched_inference(emit, index: int, total: int):
+    modules = []
+    for name in ("mdxc_separator", "mdx_separator", "vr_separator"):
+        try:
+            modules.append(importlib.import_module(
+                f"audio_separator.separator.architectures.{name}"
+            ))
+        except Exception:
+            continue
+
+    patched = [m for m in modules if hasattr(m, "tqdm")]
+    if not patched:
+        yield
+        return
+
+    originals = {m: m.tqdm for m in patched}
+
+    def watching(iterable=None, *args, **kwargs):
+        original = originals[patched[0]]
+        if iterable is None:
+            return original(*args, **kwargs)
+        try:
+            steps = len(iterable)
+        except TypeError:
+            return original(iterable, *args, **kwargs)
+
+        def counted():
+            for done, item in enumerate(iterable, start=1):
+                yield item
+                if steps:
+                    emit(
+                        kind="inference_progress",
+                        fraction=done / steps, index=index, total=total,
+                    )
+
+        return original(counted(), *args, total=steps, **kwargs)
+
+    try:
+        for module in patched:
+            module.tqdm = watching
+        yield
+    finally:
+        for module, original in originals.items():
+            module.tqdm = original

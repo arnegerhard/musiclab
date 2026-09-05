@@ -202,6 +202,9 @@ struct QueueView: View {
                     Text(job.stage == .waitingForWorker
                          ? "No Mac has picked this up yet" : "Queued")
                 }
+                if let counter = job.stepCounter {
+                    Text("· \(counter)")
+                }
                 Spacer()
                 if job.showsPercentage, let fraction = job.progress {
                     Text("\(Int(fraction * 100))%").monospacedDigit()
