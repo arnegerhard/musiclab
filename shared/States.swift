@@ -39,6 +39,15 @@ enum Stage: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// The steps a song goes through, in order. Not every song sees all of
+    /// them: one separated on a Mac never hands anything to Modal.
+    static let sequence: [Stage] = [
+        .queued, .waitingForWorker, .fetching, .decoding, .handingOver,
+        .loadingModels, .separating, .measuring, .packing, .uploading,
+    ]
+
+    var order: Int { Stage.sequence.firstIndex(of: self) ?? -1 }
+
     var isTerminal: Bool { self == .done || self == .failed }
 
     /// Nothing is happening yet, and nothing this end can do about it.

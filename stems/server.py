@@ -523,7 +523,7 @@ def next_work(worker_id: str = "", user: dict = Depends(worker_user)):
         # The worker will say which stage it is really in within seconds;
         # until its first report this is the honest answer.
         _stage(
-            job_id, Stage.fetching, progress=0.0,
+            job_id, Stage.fetching, progress=0.0, where=Where.mac,
             worker_id=worker_id, claimed_at=time.time(),
         )
         request = job.get("request", {})
@@ -731,7 +731,9 @@ def next_fetch(user: dict = Depends(worker_user)):
         # what "in the cloud" asked for, so leave the rest to a full worker.
         if job.get("request", {}).get("destination") != "cloud":
             continue
-        _stage(job_id, Stage.fetching, progress=0.0)
+        # Claimed, so the Mac owns it from this moment -- not from whenever
+        # its first progress report happens to land.
+        _stage(job_id, Stage.fetching, progress=0.0, where=Where.mac)
         return {
             "job_id": job_id,
             "url": job.get("request", {}).get("url"),
@@ -859,6 +861,24 @@ def create_job(request: JobRequest, user: dict = Depends(current_user)):
     return {"id": _enqueue(request, user)}
 
 
+# A finished song is worth remembering for a little while -- long enough for
+# somebody to see it arrive -- and after that it is only weight every listing
+# has to walk past.
+KEEP_FINISHED_SECONDS = 3600.0
+_pruned_at = 0.0
+
+
+def _prune_old_jobs() -> None:
+    global _pruned_at
+    now = time.time()
+    if now - _pruned_at < 300:
+        return
+    _pruned_at = now
+    prune = getattr(jobs.store, "prune", None)
+    if prune:
+        prune(now - KEEP_FINISHED_SECONDS)
+
+
 def _reclaim_stale(user_id: str) -> None:
     """Offer a job again when the machine holding it has gone quiet.
 
@@ -897,6 +917,7 @@ def active_jobs(user: dict = Depends(current_user)):
     stay on the screen you happened to submit from.
     """
     _reclaim_stale(user["id"])
+    _prune_old_jobs()
     jobs.refresh()
     found = jobs.store.active(user["id"])
     found.sort(key=lambda job: job.get("created_at", 0), reverse=True)

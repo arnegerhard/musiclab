@@ -42,12 +42,28 @@ class Agent:
 
     # MARK: transport
 
-    def _request(self, path: str, data: bytes | None = None, content_type: str | None = None):
+    # Long enough for a slow reply, short enough that the loop keeps turning.
+    # Every call used to wait five minutes, which is right for pushing forty
+    # megabytes and wrong for a two-hundred-byte poll: one slow answer froze
+    # the worker, its status file went stale, and the app called a Mac that
+    # was sitting right there offline.
+    POLL_TIMEOUT_SECONDS = 30
+    TRANSFER_TIMEOUT_SECONDS = 300
+
+    def _request(
+        self,
+        path: str,
+        data: bytes | None = None,
+        content_type: str | None = None,
+        timeout: float | None = None,
+    ):
         request = urllib.request.Request(f"{self.base}{path}", data=data)
         request.add_header("Authorization", f"Bearer {self.token}")
         if content_type:
             request.add_header("Content-Type", content_type)
-        with urllib.request.urlopen(request, timeout=300) as response:
+        with urllib.request.urlopen(
+            request, timeout=timeout or self.POLL_TIMEOUT_SECONDS
+        ) as response:
             body = response.read()
         return json.loads(body) if body else {}
 
@@ -55,7 +71,9 @@ class Agent:
         """Pull a file from the server, streamed, with this worker's token."""
         request = urllib.request.Request(f"{self.base}{path}")
         request.add_header("Authorization", f"Bearer {self.token}")
-        with urllib.request.urlopen(request, timeout=300) as response:
+        with urllib.request.urlopen(
+            request, timeout=self.TRANSFER_TIMEOUT_SECONDS
+        ) as response:
             with destination.open("wb") as handle:
                 while chunk := response.read(1 << 20):
                     handle.write(chunk)
@@ -81,8 +99,11 @@ class Agent:
         )
         parts.append(file.read_bytes())
         parts.append(f"\r\n--{boundary}--\r\n".encode())
+        # Sending the audio or the stems: megabytes, so it gets the patience
+        # a poll does not.
         return self._request(
-            path, b"".join(parts), f"multipart/form-data; boundary={boundary}"
+            path, b"".join(parts), f"multipart/form-data; boundary={boundary}",
+            timeout=self.TRANSFER_TIMEOUT_SECONDS,
         )
 
     # MARK: work
@@ -515,6 +536,15 @@ class Worker(Agent):
                 if errand is not None:
                     progress(f"fetch {errand['job_id']} for the cloud")
                     self._job_id = errand["job_id"]
+                    self._song = ""
+                    # The same heartbeat a full job gets. Without it the Mac
+                    # fell off the roster sixty seconds into a fetch and the
+                    # app called it offline while it was downloading.
+                    self.register(busy=True)
+                    stop = threading.Event()
+                    threading.Thread(
+                        target=self._heartbeat, args=(stop,), daemon=True
+                    ).start()
                     try:
                         Agent.handle(self, errand, progress)
                         self._done += 1
@@ -533,8 +563,10 @@ class Worker(Agent):
                         except Exception:
                             pass
                     finally:
+                        stop.set()
                         self._job_id = ""
                         self.status.idle(songs_done=self._done)
+                        self.register()
                     continue
 
             if job is None:

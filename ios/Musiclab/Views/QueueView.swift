@@ -181,15 +181,12 @@ struct QueueView: View {
                 }
             }
 
-            // A bar for work in progress, and none for work that has not
-            // started: a stalled bar at zero says the opposite of "waiting".
-            if !job.isFailed && !job.isWaiting && job.stage != .done {
-                if job.showsDeterminateBar, let fraction = job.progress {
-                    ProgressView(value: min(1, max(0, fraction)))
-                        .progressViewStyle(.linear)
-                } else {
-                    ProgressView().progressViewStyle(.linear)
-                }
+            // One bar for the whole run, filling as the song moves through
+            // the steps. A step that knows its own fraction fills its share.
+            if !job.isFailed, let overall = job.overallProgress {
+                ProgressView(value: overall)
+                    .progressViewStyle(.linear)
+                    .animation(.easeInOut(duration: 0.3), value: overall)
             }
 
             HStack {
@@ -206,7 +203,7 @@ struct QueueView: View {
                          ? "No Mac has picked this up yet" : "Queued")
                 }
                 Spacer()
-                if job.showsDeterminateBar, let fraction = job.progress {
+                if job.showsPercentage, let fraction = job.progress {
                     Text("\(Int(fraction * 100))%").monospacedDigit()
                 }
             }

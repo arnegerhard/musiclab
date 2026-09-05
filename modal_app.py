@@ -139,6 +139,22 @@ class ModalJobStore:
         }
         return worker_id
 
+    def prune(self, older_than: float) -> int:
+        """Forget jobs that finished long ago.
+
+        Nothing ever removed a finished job, so the Dict grew for the life of
+        the deployment and every listing walked all of it.
+        """
+        stale = [
+            key for key, job in self._d.items()
+            if str(key).startswith("job:") and job
+            and job.get("status") == "done"
+            and float(job.get("updated_at") or 0) < older_than
+        ]
+        for key in stale:
+            self._d.pop(key, None)
+        return len(stale)
+
     def workers(self, user_id: str) -> list[dict]:
         import time
 
@@ -157,12 +173,14 @@ class ModalJobStore:
         # available at import time in the Modal image build.
         from stems import jobs as job_module
 
+        # items(), not keys() then get(): each get is a round trip to the
+        # Dict, so listing a queue of two songs cost one trip per job ever
+        # run. That was ten seconds of the eleven this endpoint took.
         found = []
-        for key in self._d.keys():
-            if not str(key).startswith("job:"):
+        for key, job in self._d.items():
+            if not str(key).startswith("job:") or not job:
                 continue
-            job = self._d.get(key)
-            if (job and job.get("user_id") == user_id
+            if (job.get("user_id") == user_id
                     and job.get("status") not in job_module.FINISHED):
                 found.append(job)
         return found
@@ -171,12 +189,10 @@ class ModalJobStore:
         from stems.states import Stage
 
         found = []
-        for key in self._d.keys():
-            if not str(key).startswith("job:"):
+        for key, job in self._d.items():
+            if not str(key).startswith("job:") or not job:
                 continue
-            job = self._d.get(key)
-            if (job
-                    and job.get("status") == Stage.waiting_for_worker.value
+            if (job.get("status") == Stage.waiting_for_worker.value
                     and job.get("user_id") == user_id):
                 found.append(str(key)[4:])
         return found

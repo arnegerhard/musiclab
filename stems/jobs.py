@@ -49,6 +49,17 @@ class MemoryJobStore:
             if job_id in self._jobs:
                 self._jobs[job_id].update(fields)
 
+    def prune(self, older_than: float) -> int:
+        with self._lock:
+            stale = [
+                key for key, job in self._jobs.items()
+                if job.get("status") == Stage.done.value
+                and float(job.get("updated_at") or 0) < older_than
+            ]
+            for key in stale:
+                self._jobs.pop(key, None)
+        return len(stale)
+
     def remove(self, job_id: str) -> None:
         with self._lock:
             self._jobs.pop(job_id, None)
