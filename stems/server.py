@@ -913,10 +913,18 @@ def _apply_event(job_id: str, event: dict, where: Where) -> dict:
     job = jobs.store.get(job_id) or {}
     current = parse_stage(job.get("status"))
 
-    # A report that would move the song backwards is a late one. Reports are
-    # rate limited, so the last from a Mac can arrive after the audio has been
-    # handed over and the cloud has started. Going back happens on a reclaim.
-    if current is not None and current.order > update.stage.order >= 0:
+    # Finished is finished. Reports are sent from a queue, so the ones raised
+    # while a hundred and thirty megabytes of stems were uploading arrive
+    # after the result does -- and "done" is not in the run of steps, so its
+    # order is -1 and every one of them counted as forward progress. A song
+    # was dragged back to "Packing the stems", the worker saw it unfinished
+    # and separated it again, fourteen times.
+    #
+    # And a report that would move the song backwards is simply a late one.
+    # Going back happens on a reclaim or a failure, never on progress.
+    if current is not None and (
+        current.is_terminal or current.order > update.stage.order >= 0
+    ):
         return _visible(jobs.store.get(job_id) or {})
 
     # None means "leave the aside alone", which only makes sense within a
