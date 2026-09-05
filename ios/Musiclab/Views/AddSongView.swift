@@ -21,7 +21,12 @@ struct AddSongView: View {
     @State private var error: String?
     /// Whether this account has a Mac at all. Without one only the cloud can
     /// do anything, and only with songs that need no fetching.
-    @State private var hasMac = false
+    /// Whether this account has a Mac at all. Read from the queue, which has
+    /// been polling for machines since sign-in, rather than asked for again
+    /// here: this screen used to start every visit believing there was no Mac
+    /// and spend a round trip finding out otherwise, while the Queue tab one
+    /// tap away already knew.
+    private var hasMac: Bool { !queue.machines.isEmpty }
 
     var body: some View {
         // A VStack rather than another safeAreaInset: the mini player already
@@ -36,7 +41,13 @@ struct AddSongView: View {
             // are impossible, so they are not offered.
             if hasMac { linkSection }
             fileSection
-            if hasMac { servicesSection } else { noMacSection }
+            if hasMac {
+                servicesSection
+            } else if queue.hasLoadedMachines {
+                noMacSection
+            } else {
+                lookingSection
+            }
             if !basket.isEmpty { chosenSection }
         }
         // Not rows. A confirmation and an error are momentary, and as
@@ -73,19 +84,16 @@ struct AddSongView: View {
         .onChange(of: queue.count) { _, remaining in
             if remaining == 0 { added = nil }
         }
-        .task { await checkForMac() }
-        // Pairing happens elsewhere -- the Queue tab, or the sheet below --
-        // and .task only ever runs once, so this screen went on believing
-        // there was no Mac long after one had been adopted.
-        .onAppear { Task { await checkForMac() } }
+        // Coming back to the app is when a Mac may have been switched on or
+        // off while nobody was looking.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await checkForMac() } }
+            if phase == .active { Task { await queue.refresh() } }
         }
         .sheet(isPresented: $pairing) {
             PairMacView()
         }
         .onChange(of: pairing) { _, showing in
-            if !showing { Task { await checkForMac() } }
+            if !showing { Task { await queue.refresh() } }
         }
 
             footer
@@ -137,6 +145,19 @@ struct AddSongView: View {
             Text("Files you already have")
         } footer: {
             Text("MP3, M4A, FLAC, WAV, OGG — whatever it is, it gets converted.")
+        }
+    }
+
+    /// Before the first answer comes back. Saying "no Mac is paired" here
+    /// would be a guess, and a wrong one for anybody who has paired a Mac:
+    /// the screen accused them of not having done it, then corrected itself.
+    private var lookingSection: some View {
+        Section {
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Looking for your Macs…").foregroundStyle(.secondary)
+            }
+            .font(.callout)
         }
     }
 
@@ -336,14 +357,6 @@ struct AddSongView: View {
 
     // MARK: - Handing it all over
 
-    private func checkForMac() async {
-        let url = client.baseURL.appendingPathComponent("api/auth/pairings")
-        let found = try? await URLSession.shared.data(for: client.request(url))
-        guard let data = found?.0,
-              let list = try? JSONSerialization.jsonObject(with: data) as? [Any]
-        else { return }
-        hasMac = !list.isEmpty
-    }
 
     /// Everything in the basket, in one go, to one place.
     private func send(to destination: String) async {

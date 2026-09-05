@@ -14,6 +14,10 @@ final class JobQueue {
     /// alongside the jobs because they are two halves of one question: what
     /// is happening, and what is able to happen.
     private(set) var machines: [Machine] = []
+    /// Whether the machine list has ever been answered. An empty list before
+    /// the first reply means "not asked yet", which is a different thing from
+    /// "no Macs" and must not be shown as one.
+    private(set) var hasLoadedMachines = false
     private(set) var lastError: String?
 
     /// What the tab badge counts.
@@ -67,6 +71,7 @@ final class JobQueue {
            let decoded = try? JSONDecoder().decode([Machine].self, from: data)
         else { return }
         machines = decoded
+        hasLoadedMachines = true
     }
 
     /// Whether anything could pick up a song needing a Mac right now.

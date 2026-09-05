@@ -107,10 +107,33 @@ final class WorkerProcess {
 
     // MARK: - Lifecycle
 
+    /// Leave a line in the worker log.
+    ///
+    /// A worker that will not start used to leave nothing anywhere: no
+    /// process, no log, no message. The log is where anyone would look.
+    static func note(_ message: String) {
+        let line = "[app] \(message)\n"
+        let url = logURL
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        }
+        print(line, terminator: "")
+    }
+
     func start() {
         guard !isRunning else { return }
+        Self.note("start: interpreter \(Self.python.path)")
         guard let config = Self.loadConfiguration() else {
             lastError = "This Mac has not been paired yet."
+            Self.note("start: no configuration; not paired")
             return
         }
         guard let token = Keychain.read() else {
@@ -118,6 +141,8 @@ final class WorkerProcess {
             // on, by pairing this build once.
             lastError = "This Mac is paired, but its credential cannot be "
                       + "read. Pair it again."
+            Self.note("start: configuration present but the keychain refused "
+                      + "the token; treating this Mac as unpaired")
             isPaired = false
             return
         }
@@ -140,6 +165,13 @@ final class WorkerProcess {
             """,
         ]
         var environment = ProcessInfo.processInfo.environment
+        // Tell the worker where to write its status rather than letting it
+        // work that out. It decides from where the stems package sits -- next
+        // to the source in a checkout, in Application Support inside a bundle
+        // -- so a worker run from a checkout wrote its status into the repo
+        // while this app read Application Support and concluded, for half an
+        // hour, that a perfectly healthy worker was not responding.
+        environment["MUSICLAB_STATUS"] = StatusReader.statusURL.path
         environment["MUSICLAB_SERVER"] = config.server
         environment["MUSICLAB_TOKEN"] = token
         // Run from a directory that is not the bundle, so nothing on the
@@ -167,8 +199,10 @@ final class WorkerProcess {
             isRunning = true
             wantsToRun = true
             lastError = nil
+            Self.note("start: worker running as pid \(task.processIdentifier)")
         } catch {
             lastError = error.localizedDescription
+            Self.note("start: could not launch the interpreter: \(error)")
         }
     }
 

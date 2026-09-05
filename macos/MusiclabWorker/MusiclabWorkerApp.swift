@@ -26,6 +26,10 @@ struct MusiclabWorkerApp: App {
     @MainActor
     private func bootstrap() {
         reader.start()
+        WorkerProcess.note(
+            "bootstrap: packaged=\(WorkerProcess.isPackaged) "
+            + "paired=\(worker.isPaired)"
+        )
         if WorkerProcess.isPackaged, worker.isPaired {
             worker.start()
         } else {
