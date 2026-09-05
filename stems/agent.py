@@ -188,6 +188,23 @@ class Worker(Agent):
             except Exception:
                 return ""
 
+        def computer_name() -> str:
+            """What its owner calls this Mac, not what the router does.
+
+            platform.node() is the hostname, which on a home network is
+            whatever DHCP handed out -- "Mac-121.lan" here -- and it changes
+            with the lease. ComputerName is the one in System Settings, the
+            one that already appears on the phone because pairing recorded it.
+            """
+            try:
+                name = subprocess.run(
+                    ["/usr/sbin/scutil", "--get", "ComputerName"],
+                    capture_output=True, text=True, timeout=5,
+                ).stdout.strip()
+            except Exception:
+                name = ""
+            return name or platform.node().split(".")[0] or "A Mac"
+
         memory = sysctl("hw.memsize")
         try:
             import torch
@@ -204,7 +221,7 @@ class Worker(Agent):
                 memory = "0"
 
         return {
-            "name": platform.node().split(".")[0],
+            "name": computer_name(),
             "chip": sysctl("machdep.cpu.brand_string") or platform.machine(),
             "cores": int(sysctl("hw.ncpu") or 0) or (os.cpu_count() or 0),
             "memory_gb": round(int(memory) / 1e9, 1) if memory.isdigit() else 0,
