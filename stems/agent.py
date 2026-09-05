@@ -576,6 +576,12 @@ class Worker(Agent):
         """
         while not stop.wait(20):
             self.status.touch()
+            # Two different claims, and both have to be made. register() says
+            # this machine is alive; the event says it still holds this song.
+            # A separation stage runs for minutes without emitting anything,
+            # and without this the job was offered to somebody else while the
+            # Mac was in the middle of it.
+            self.report(kind="still_working")
             try:
                 self.register(busy=True)
             except Exception:

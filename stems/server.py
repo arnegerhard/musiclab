@@ -673,8 +673,14 @@ def work_event(job_id: str, body: WorkEvent, user: dict = Depends(worker_user)):
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
     event = {k: v for k, v in body.model_dump().items() if v not in (None, "", [])}
+    # Any word from the machine holding this song is proof it still holds it,
+    # whether or not there is anything new to show. A separation stage can run
+    # for minutes without producing an event, and the sweep took the job away
+    # from a Mac that was busy separating it.
+    fields: dict = {"updated_at": time.time()}
     if body.worker:
-        jobs.store.update(job_id, worker_name=body.worker)
+        fields["worker_name"] = body.worker
+    jobs.store.update(job_id, **fields)
     visible = _apply_event(job_id, event, Where.mac)
     jobs.publish()
     return visible
