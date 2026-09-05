@@ -34,3 +34,7 @@ macos/*.xcodeproj/
 # uv's resolved lockfile. Nothing here installs from it: the worker bundle is
 # built with `uv pip install` against pyproject, and Modal builds its own image.
 uv.lock
+
+# The worker's status file, written into the checkout when the worker runs on
+# a checkout's own interpreter rather than a bundled one.
+status.json
