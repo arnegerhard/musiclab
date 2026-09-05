@@ -5,7 +5,10 @@ import UIKit
 /// welcome sheet, gets copied to a clipboard, and will outlive this screen.
 enum WorkerDownload {
     static let url = "https://downloads.jetsons.info/Musiclab-Worker.zip"
-    static let size = "330 MB"
+    /// Decimal megabytes, which is what Finder and the browser will say when
+    /// this lands. The old figure was mebibytes wearing an MB label, so the
+    /// download looked twelve megabytes bigger than promised on arrival.
+    static let size = "342 MB"
 }
 
 /// Shown once, after the first sign-in, because everything that makes this app
