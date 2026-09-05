@@ -157,6 +157,10 @@ final class WorkerProcess {
         let task = Process()
         task.executableURL = Self.python
         task.arguments = [
+            // Unbuffered: stdout goes to a file, so Python block-buffers it
+            // and the log stops mid-story. The line that says why a worker
+            // gave up was sitting in a buffer that never flushed.
+            "-u",
             "-c",
             """
             import os

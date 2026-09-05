@@ -647,7 +647,14 @@ def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_use
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
-    failure = classify(body.error)
+    _gave_up(job, body.error)
+    return {"ok": True}
+
+
+def _gave_up(job: dict, error: str) -> None:
+    """Hand a job back, or fail it, depending on why the machine stopped."""
+    job_id = job["id"]
+    failure = classify(error)
 
     # Handing a job back has to be able to stop. A failure nothing recognises
     # is retryable by default, which is right for a dropped connection and
@@ -659,17 +666,16 @@ def work_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_use
                attempts=attempts)
         jobs.store.append_log(
             job_id,
-            f"A worker gave up (attempt {attempts} of {MAX_ATTEMPTS}): {body.error}",
+            f"A machine gave up (attempt {attempts} of {MAX_ATTEMPTS}): {error}",
         )
     else:
         # A retryable failure that has run out of attempts is still a fetch
         # that did not finish, and saying so is more use than "unknown".
         if failure.retryable:
             failure = Failure.fetch_failed
-        _stage(job_id, Stage.failed, failure=failure, error=body.error,
+        _stage(job_id, Stage.failed, failure=failure, error=error,
                worker_id=None, attempts=attempts)
-        jobs.store.append_log(job_id, f"{failure.label}: {body.error}")
-    return {"ok": True}
+        jobs.store.append_log(job_id, f"{failure.label}: {error}")
 
 
 @app.get("/api/fetch/next")
@@ -695,10 +701,16 @@ def next_fetch(user: dict = Depends(worker_user)):
 
 @app.post("/api/fetch/{job_id}/failed")
 def fetch_failed(job_id: str, body: FetchFailure, user: dict = Depends(worker_user)):
+    """A machine gave up fetching. Same rules as giving up separating.
+
+    This used to fail the song outright while the other endpoint handed it
+    back, so whether a dropped connection cost you the song depended on which
+    half of the work it interrupted.
+    """
     job = jobs.store.get(job_id)
     if job is None or job.get("user_id") != user["id"]:
         raise HTTPException(404, "no such job")
-    _stage(job_id, Stage.failed, failure=classify(body.error), error=body.error)
+    _gave_up(job, body.error)
     return {"ok": True}
 
 

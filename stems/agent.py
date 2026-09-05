@@ -142,10 +142,15 @@ class Agent:
         with tempfile.TemporaryDirectory() as staging:
             progress(f"  downloading {url}")
 
-            def fetching(event: dict) -> None:
-                if event.get("kind") == "decode_start":
+            # Keyword arguments, because that is how the pipeline emits:
+            # `emit(kind="decode_start")`. Taking a dict here instead meant
+            # every fetch raised the moment the download finished, and the
+            # only trace was a line Python was still holding in a buffer.
+            def fetching(**event) -> None:
+                kind = event.get("kind")
+                if kind == "decode_start":
                     self.say(Stage.decoding, song=title or self._song)
-                elif event.get("kind") == "download_progress":
+                elif kind == "download_progress":
                     self.say(
                         Stage.fetching, song=title or self._song,
                         progress=0.05 + 0.75 * float(event.get("fraction", 0)),
@@ -153,8 +158,7 @@ class Agent:
 
             source = download.fetch(
                 url, Path(staging),
-                progress=lambda f: fetching({"kind": "download_progress",
-                                             "fraction": f}),
+                progress=lambda f: fetching(kind="download_progress", fraction=f),
                 emit=fetching,
             )
             self._song = source.title or title
@@ -504,6 +508,17 @@ class Worker(Agent):
                     except Exception as exc:
                         progress(f"  failed: {exc}")
                         self.status.failed(str(exc)[:200], classify(exc))
+                        # And tell the server, which is the part that was
+                        # missing: the job stayed "Downloading the audio" with
+                        # nobody downloading it until the stale sweep noticed
+                        # three minutes later, then failed the same way again.
+                        try:
+                            self._post_json(
+                                f"/api/fetch/{errand['job_id']}/failed",
+                                {"error": str(exc)[:400]},
+                            )
+                        except Exception:
+                            pass
                     finally:
                         self._job_id = ""
                         self.status.idle(songs_done=self._done)
