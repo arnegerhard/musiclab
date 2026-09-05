@@ -203,6 +203,14 @@ class Agent:
             return
         if title := visible.get("title"):
             self._song = title
+
+        # Only show work this machine is doing. The reply describes the song,
+        # and after a Mac hands the audio over the song belongs to a GPU
+        # container: reports still in the queue came back saying "Loading the
+        # models", and the Mac's menu bar dutifully showed the cloud's
+        # progress and called itself busy while Modal did the work.
+        if job_id != self._job_id or visible.get("worked_by") != "mac":
+            return
         self.status.apply(visible, song=self._song)
 
     def handle(self, job: dict, progress=print) -> None:

@@ -955,6 +955,9 @@ def _visible(job: dict) -> dict:
         "detail": job.get("detail") or "",
         "progress": job.get("progress"),
         "title": job.get("title") or "",
+        # Which machine this step belongs to, so a reader can tell whether it
+        # is being told about its own work or somebody else's.
+        "worked_by": job.get("worked_by") or "",
     }
 
 
