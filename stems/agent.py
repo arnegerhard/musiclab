@@ -121,8 +121,7 @@ class Agent:
         track = job.get("track")
         matched = None
         title = (track or {}).get("title", "") if track else ""
-        self.say(Stage.fetching, detail="Finding the song", song=title,
-                 progress=0.01)
+        self.say(Stage.fetching, detail="Finding the song", song=title)
 
         if not url and track:
             progress(f"  matching \"{track['title']}\"")
@@ -153,7 +152,7 @@ class Agent:
                 elif kind == "download_progress":
                     self.say(
                         Stage.fetching, song=title or self._song,
-                        progress=0.05 + 0.75 * float(event.get("fraction", 0)),
+                        progress=float(event.get("fraction", 0)),
                     )
 
             source = download.fetch(
@@ -170,8 +169,10 @@ class Agent:
             )
             size = audio.stat().st_size / 1e6
             progress(f"  uploading {size:.0f} MB")
-            self.say(Stage.uploading, detail=f"{size:.0f} MB",
-                     song=self._song, progress=0.9)
+            # Named for where it is going: this is the Mac handing the audio
+            # to the cloud, not the end of the job.
+            self.say(Stage.handing_over, detail=f"{size:.0f} MB",
+                     song=self._song)
             self._post_file(
                 f"/api/fetch/{job_id}",
                 audio,
@@ -355,14 +356,13 @@ class Worker(Agent):
 
             bundle = out / "result.tar"
             progress("  packing")
-            self.status.working(Stage.packing, song=self._song, progress=0.9)
+            self.status.working(Stage.packing, song=self._song)
             with tarfile.open(bundle, "w") as tar:
                 tar.add(result.job_dir, arcname=result.job_dir.name)
             size = bundle.stat().st_size / 1e6
             progress(f"  uploading {size:.0f} MB")
             self.status.working(
-                Stage.uploading, detail=f"{size:.0f} MB",
-                song=self._song, progress=0.95,
+                Stage.uploading, detail=f"{size:.0f} MB", song=self._song,
             )
             self._post_file(
                 f"/api/work/{job_id}/result",
@@ -433,7 +433,7 @@ class Worker(Agent):
         if kind == "download_progress":
             self.say(
                 Stage.fetching, song=self._song,
-                progress=0.02 + 0.06 * float(event.get("fraction", 0)),
+                progress=float(event.get("fraction", 0)),
             )
         elif kind == "decode_start":
             # No fraction: ffmpeg reports none, and a bar that crawls on
@@ -451,20 +451,33 @@ class Worker(Agent):
                 Stage.loading_models, detail=event.get("model", ""),
                 song=self._song, progress=done / total,
             )
+        elif kind == "model_ready":
+            total = max(1, event.get("total", 1))
+            index = event.get("index", 0)
+            self.say(
+                Stage.separating, song=self._song,
+                detail=f"{index + 1} of {total}", progress=index / total,
+            )
         elif kind == "stage_start":
             progress(f"    {event['title']}")
-            share = event.get("index", 0) / max(1, event.get("total", 1))
+            total = max(1, event.get("total", 1))
+            index = event.get("index", 0)
             self.say(
-                Stage.separating, detail=event["title"], song=self._song,
-                progress=0.10 + 0.70 * share,
+                Stage.separating, song=self._song,
+                detail=f'{event["title"]} ({index + 1} of {total})',
+                progress=index / total,
             )
         elif kind == "encode_start":
-            self.say(Stage.packing, song=self._song, progress=0.82)
-        elif kind == "analyse_start":
+            self.say(Stage.packing, song=self._song, progress=0.0)
+        elif kind == "encode_progress":
+            total = max(1, event.get("total", 1))
             self.say(
-                Stage.packing, detail="Measuring levels",
-                song=self._song, progress=0.88,
+                Stage.packing, song=self._song,
+                detail=f'{event.get("done", 0)} of {total}',
+                progress=event.get("done", 0) / total,
             )
+        elif kind == "analyse_start":
+            self.say(Stage.measuring, song=self._song)
 
     def run(self, once: bool = False, progress=print) -> None:
         ensure_on_path()

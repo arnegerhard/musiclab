@@ -170,6 +170,7 @@ struct QueueView: View {
                     Image(systemName: stage.symbol)
                         .foregroundStyle(stageColour(job))
                         .frame(width: 20)
+                        .accessibilityLabel(stage.label)
                 } else {
                     ProgressView().controlSize(.small).frame(width: 20)
                 }
@@ -192,8 +193,14 @@ struct QueueView: View {
             }
 
             HStack {
-                if let worker = job.workerName, !worker.isEmpty {
-                    Label(worker, systemImage: "desktopcomputer")
+                // Where the work is, not which machine was paired. A song
+                // fetched on a Mac and separated in the cloud showed a greyed
+                // out Mac for the whole separation.
+                if let place = job.workedBy {
+                    Label(
+                        place == .mac ? (job.workerName ?? place.label) : place.label,
+                        systemImage: place.symbol
+                    )
                 } else if job.isWaiting {
                     Text(job.stage == .waitingForWorker
                          ? "No Mac has picked this up yet" : "Queued")

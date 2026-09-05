@@ -29,8 +29,10 @@ class Stage(str, Enum):
     waiting_for_worker = "waiting_for_worker"
     fetching = "fetching"
     decoding = "decoding"
+    handing_over = "handing_over"
     loading_models = "loading_models"
     separating = "separating"
+    measuring = "measuring"
     packing = "packing"
     uploading = "uploading"
     needs_confirmation = "needs_confirmation"
@@ -53,6 +55,12 @@ class Stage(str, Enum):
         )
 
     @property
+    def order(self) -> int:
+        """Where this sits in the run of a song, for a UI that wants to show
+        the steps rather than one moving number."""
+        return _ORDER.index(self) if self in _ORDER else -1
+
+    @property
     def determinate(self) -> bool:
         """Whether a fraction means anything here.
 
@@ -63,8 +71,25 @@ class Stage(str, Enum):
         """
         return self in (
             Stage.fetching, Stage.loading_models, Stage.separating,
-            Stage.packing, Stage.uploading,
+            Stage.packing,
         )
+
+
+# The steps a song goes through, in the order it goes through them. Not every
+# song sees all of them -- one separated on a Mac never hands anything to
+# Modal, one whose models are already warm never waits for them.
+_ORDER: tuple[Stage, ...] = (
+    Stage.queued,
+    Stage.waiting_for_worker,
+    Stage.fetching,
+    Stage.decoding,
+    Stage.handing_over,
+    Stage.loading_models,
+    Stage.separating,
+    Stage.measuring,
+    Stage.packing,
+    Stage.uploading,
+)
 
 
 _LABELS: dict[Stage, str] = {
@@ -72,8 +97,10 @@ _LABELS: dict[Stage, str] = {
     Stage.waiting_for_worker: "Waiting for a Mac",
     Stage.fetching: "Downloading the audio",
     Stage.decoding: "Decoding the audio",
+    Stage.handing_over: "Sending the audio to Modal",
     Stage.loading_models: "Loading the models",
-    Stage.separating: "Separating",
+    Stage.separating: "Separating the stems",
+    Stage.measuring: "Measuring levels",
     Stage.packing: "Packing the stems",
     Stage.uploading: "Sending the stems back",
     Stage.needs_confirmation: "Waiting for you to confirm the match",
@@ -132,6 +159,22 @@ _WORKER_LABELS: dict[WorkerState, str] = {
     WorkerState.busy: "Working",
     WorkerState.failed: "Stopped after an error",
 }
+
+
+class Where(str, Enum):
+    """Which machine is doing the current step.
+
+    A song can be fetched on a Mac and separated in the cloud, so this is a
+    property of the moment rather than of the job: the queue showed a greyed
+    out Mac while Modal was doing the work.
+    """
+
+    mac = "mac"
+    cloud = "cloud"
+
+    @property
+    def label(self) -> str:
+        return "Your Mac" if self is Where.mac else "Modal"
 
 
 class Failure(str, Enum):

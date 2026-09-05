@@ -164,6 +164,15 @@ class Cascade:
             # stage's folder and we would never find its outputs.
             separator.model_instance.output_dir = str(raw_dir)
 
+        # The model is up; what follows is the separation itself, which is the
+        # long part. Without this the last thing anyone heard was "loading the
+        # models", so the whole separation ran under the label of the step
+        # before it and the bar sat still.
+        self._emit(
+            kind="model_ready", stage=stage.key, model=model,
+            index=index, total=total,
+        )
+
         outputs = separator.separate(str(input_path))
 
         produced: list[Stem] = []

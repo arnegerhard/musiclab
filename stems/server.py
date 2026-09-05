@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from . import db, jobs, match, pipeline
 from .api_auth import current_user, worker_user
 from .api_auth import router as auth_router
-from .states import Failure, Stage, WorkerState, classify, parse_stage
+from .states import Failure, Stage, Where, WorkerState, classify, parse_stage
 from .config import DEFAULT_FORMAT, OUT_DIR
 
 
@@ -118,6 +118,7 @@ def _stage(
     detail: str | None = None,
     progress: float | None = None,
     failure: Failure | None = None,
+    where: Where | None = None,
     **fields,
 ) -> None:
     """Move a job to a named stage, and let the stage write its own words.
@@ -130,10 +131,20 @@ def _stage(
     """
     fields["status"] = stage.value
     fields["phase"] = failure.label if failure else stage.label
+    if where is not None:
+        fields["worked_by"] = where.value
+    elif stage.is_waiting or stage.is_terminal:
+        # Nothing is working on it, so nothing should be shown as working.
+        fields["worked_by"] = None
     if detail is not None:
         fields["detail"] = detail
     elif failure is not None:
         fields["detail"] = failure.remedy
+    else:
+        # A new step with nothing to add says nothing, rather than keeping the
+        # last step's aside: "Packing the stems" sat there explaining that it
+        # was on model 2 of 2.
+        fields["detail"] = ""
     if not stage.determinate:
         # The stage decides, not the caller. A number here would be invented,
         # and leaving the previous stage's behind makes a bar that stalls --
@@ -233,28 +244,42 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
     _stage(job_id, Stage.fetching, progress=0.0)
 
     def progress(event):
+        """Every step here runs on the separating machine -- in production a
+        GPU container, which is why each one says so. Fractions are within the
+        step, not across the song: a bar that crawls from 0.10 to 0.12 over
+        four minutes reads as broken, while "2 of 3 models" reads as work."""
         kind = event.get("kind")
         if kind == "download_progress":
-            _stage(job_id, Stage.fetching, progress=round(event["fraction"], 3))
+            _stage(job_id, Stage.fetching, where=Where.cloud,
+                   progress=round(event["fraction"], 3))
         elif kind == "download_done":
-            _stage(job_id, Stage.decoding, title=event["title"])
+            _stage(job_id, Stage.decoding, where=Where.cloud,
+                   title=event["title"])
             _append_log(job_id, f'Downloaded "{event["title"]}"')
+        elif kind == "decode_start":
+            _stage(job_id, Stage.decoding, where=Where.cloud)
         elif kind == "model_load":
-            # On a cold GPU container this is most of the wait, and it used to
-            # be a sentence with no state behind it -- the phone could show
-            # the words but had no way to know a bar belonged here.
+            # On a cold GPU container this is most of the wait.
             done = event.get("index", 0)
             total = max(1, event.get("total", 1))
             _stage(
-                job_id, Stage.loading_models, detail=event["model"],
-                progress=round(done / total, 3),
+                job_id, Stage.loading_models, where=Where.cloud,
+                detail=event["model"], progress=round(done / total, 3),
+            )
+        elif kind == "model_ready":
+            total = max(1, event.get("total", 1))
+            index = event.get("index", 0)
+            _stage(
+                job_id, Stage.separating, where=Where.cloud,
+                detail=f"{index + 1} of {total}",
+                progress=round(index / total, 3),
             )
         elif kind == "stage_start":
-            share = event["index"] / max(1, event["total"])
+            total = max(1, event["total"])
             _stage(
-                job_id, Stage.separating,
-                detail=f'{event["title"]} ({event["index"] + 1}/{event["total"]})',
-                progress=round(share, 3),
+                job_id, Stage.separating, where=Where.cloud,
+                detail=f'{event["title"]} ({event["index"] + 1} of {total})',
+                progress=round(event["index"] / total, 3),
             )
         elif kind == "stage_done":
             _append_log(job_id, f'{event["stage"]}: {", ".join(event["stems"])}')
@@ -262,10 +287,17 @@ def _run_separation(job_id: str, request: dict | JobRequest, url: str):
             _append_log(job_id, f'Skipped {event["stage"]}: {event["reason"]}')
         elif kind == "stem_missing":
             _append_log(job_id, f'Warning: {event["file"]} went missing')
-        elif kind == "decode_start":
-            _stage(job_id, Stage.decoding)
         elif kind == "analyse_start":
-            _stage(job_id, Stage.packing, detail="Measuring levels")
+            _stage(job_id, Stage.measuring, where=Where.cloud)
+        elif kind == "encode_start":
+            _stage(job_id, Stage.packing, where=Where.cloud, progress=0.0)
+        elif kind == "encode_progress":
+            total = max(1, event["total"])
+            _stage(
+                job_id, Stage.packing, where=Where.cloud,
+                detail=f'{event["done"]} of {total}',
+                progress=round(event["done"] / total, 3),
+            )
 
     job = jobs.store.get(job_id) or {}
     matched = job.get("match")
@@ -325,7 +357,7 @@ def _enqueue(request: JobRequest, user: dict) -> str:
         # the card before it can do anything, which is a minute of apparent
         # silence. Say so, rather than showing "Queued" at a queue of one.
         _stage(
-            job_id, Stage.loading_models,
+            job_id, Stage.loading_models, where=Where.cloud,
             detail="Starting a GPU container",
         )
         jobs.runner.submit(_run_job, job_id, request.model_dump())
@@ -612,6 +644,16 @@ def work_progress(job_id: str, body: WorkProgress, user: dict = Depends(worker_u
         stage = Stage(body.stage)
     except ValueError:
         stage = None
+    # A report that would move the song backwards is a late one. The Mac's
+    # reports are rate limited, so the last of them can arrive after the audio
+    # has been handed over and the cloud has started -- dragging the step back
+    # to "Decoding the audio" while a GPU container was already loading.
+    # Going back happens on a reclaim or a failure, never on progress.
+    current = parse_stage(job.get("status"))
+    if (stage is not None and current is not None
+            and current.order > stage.order >= 0):
+        return {"ok": True}
+
     if stage is not None:
         # Real progress clears the record of past failures. Attempts are there
         # to stop a job circling for ever; a job that has reached a new stage
@@ -619,7 +661,7 @@ def work_progress(job_id: str, body: WorkProgress, user: dict = Depends(worker_u
         # against it can fail a download that is going perfectly.
         _stage(
             job_id, stage, detail=body.detail, progress=body.progress,
-            worker_name=body.worker, attempts=0,
+            worker_name=body.worker, attempts=0, where=Where.mac,
         )
     else:
         _update(
@@ -750,7 +792,8 @@ async def deliver_fetch(
     # anything happens, which is a minute or more. Without this the job kept
     # whatever the Mac last said -- "Sending the stems back" -- through all of
     # it, so the wait looked like a stall in the wrong place entirely.
-    _stage(job_id, Stage.loading_models, detail="Starting a GPU container")
+    _stage(job_id, Stage.loading_models, where=Where.cloud,
+           detail="Starting a GPU container")
     jobs.runner.submit(_run_separation, job_id, request.model_dump(), "")
     return {"ok": True}
 

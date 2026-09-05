@@ -11,8 +11,10 @@ enum Stage: String, Codable, CaseIterable, Sendable {
     case waitingForWorker = "waiting_for_worker"
     case fetching
     case decoding
+    case handingOver = "handing_over"
     case loadingModels = "loading_models"
     case separating
+    case measuring
     case packing
     case uploading
     case needsConfirmation = "needs_confirmation"
@@ -25,8 +27,10 @@ enum Stage: String, Codable, CaseIterable, Sendable {
         case .waitingForWorker: return "Waiting for a Mac"
         case .fetching: return "Downloading the audio"
         case .decoding: return "Decoding the audio"
+        case .handingOver: return "Sending the audio to Modal"
         case .loadingModels: return "Loading the models"
-        case .separating: return "Separating"
+        case .separating: return "Separating the stems"
+        case .measuring: return "Measuring levels"
         case .packing: return "Packing the stems"
         case .uploading: return "Sending the stems back"
         case .needsConfirmation: return "Waiting for you to confirm the match"
@@ -47,7 +51,7 @@ enum Stage: String, Codable, CaseIterable, Sendable {
     /// that stops moving is indistinguishable from a hang.
     var determinate: Bool {
         switch self {
-        case .fetching, .loadingModels, .separating, .packing, .uploading:
+        case .fetching, .loadingModels, .separating, .packing:
             return true
         default:
             return false
@@ -74,6 +78,8 @@ enum Stage: String, Codable, CaseIterable, Sendable {
         case .queued, .waitingForWorker: return "clock"
         case .fetching: return "arrow.down.circle"
         case .decoding: return "waveform"
+        case .handingOver: return "arrow.up.to.line"
+        case .measuring: return "ruler"
         case .loadingModels: return "shippingbox"
         case .separating: return "square.stack.3d.up"
         case .packing: return "archivebox"
@@ -83,6 +89,19 @@ enum Stage: String, Codable, CaseIterable, Sendable {
         case .failed: return "exclamationmark.triangle.fill"
         }
     }
+}
+
+/// Which machine is doing the current step.
+///
+/// A song can be fetched on a Mac and separated in the cloud, so this belongs
+/// to the moment rather than to the job: the queue showed a greyed out Mac
+/// while Modal was doing the work.
+enum Where: String, Codable, CaseIterable, Sendable {
+    case mac
+    case cloud
+
+    var label: String { self == .mac ? "Your Mac" : "Modal" }
+    var symbol: String { self == .mac ? "desktopcomputer" : "bolt.horizontal.circle" }
 }
 
 /// What a machine is, as distinct from what a song is.
