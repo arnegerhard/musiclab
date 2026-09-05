@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import queue
 import threading
 import tempfile
 import time
@@ -36,6 +37,7 @@ class Agent:
         self._song = ""
         self._name = ""
         self._last_report_error = ""
+        self._reporter = None
         # Whoever started this. Checked while idle so an orphan stops itself.
         self._parent_pid = __import__("os").getppid()
         self._song = ""
@@ -121,34 +123,67 @@ class Agent:
             return None
         return job if job.get("job_id") else None
 
-    # yt-dlp calls its progress hook for every chunk it receives, and every
-    # report is an HTTPS round trip: sending one per chunk turned a two second
-    # download into thirty-five bytes a second. Only these two arrive at that
-    # rate, and only these two are worth dropping -- everything else is a step
-    # changing, which must always get through.
+    # These two arrive many times a second during a download or an encode, and
+    # only the newest of them is worth sending. Everything else is a step
+    # changing, which must always get through, in order.
     CHATTY_EVENTS = frozenset({"download_progress", "encode_progress"})
-    REPORT_INTERVAL_SECONDS = 1.0
 
     def report(self, **event) -> None:
-        """Say what happened, and show what the server says it means.
+        """Say what happened. Returns at once; the sending happens elsewhere.
 
-        The worker used to decide for itself which stage an event belonged to
-        and how full the bar should be, and so did the server, in a second
-        copy of the same table. They drifted, and every progress bug of the
-        last few days lived in the gap between them.
+        This used to post synchronously, from inside yt-dlp's progress hook.
+        A round trip to the server is often a second and sometimes four, so
+        the download spent its life waiting on the reports about it: a five
+        second download took over a minute, and the bar it was reporting to
+        sat at nought because the first report had not landed yet.
+
+        Nothing that does work should ever wait on telling somebody about it.
         """
         if self.status is None or not self._job_id:
             return
-        kind = event.get("kind", "")
-        if kind in self.CHATTY_EVENTS:
-            now = time.time()
-            if now - getattr(self, "_reported_at", 0.0) < self.REPORT_INTERVAL_SECONDS:
-                return
-            self._reported_at = now
+        self._start_reporting()
+        try:
+            self._events.put_nowait((self._job_id, event))
+        except queue.Full:
+            pass                        # a lost bar update is not worth a stall
 
+    def _start_reporting(self) -> None:
+        if getattr(self, "_reporter", None) is not None:
+            return
+        self._events: "queue.Queue[tuple[str, dict]]" = queue.Queue(maxsize=256)
+        self._reporter = threading.Thread(target=self._send_reports, daemon=True)
+        self._reporter.start()
+
+    def _send_reports(self) -> None:
+        """One sender, taking whatever has piled up while it was busy.
+
+        Coalescing matters as much as being off the hot path: a slow server
+        means a queue of a hundred download percentages, and only the last of
+        them is worth anybody's time. Everything else -- a step starting, a
+        model loading -- is news, and goes in the order it happened.
+        """
+        while True:
+            batch = [self._events.get()]
+            while True:
+                try:
+                    batch.append(self._events.get_nowait())
+                except queue.Empty:
+                    break
+
+            latest_chatty = None
+            for job_id, event in batch:
+                if event.get("kind") in self.CHATTY_EVENTS:
+                    latest_chatty = (job_id, event)
+                else:
+                    self._send_one(job_id, event)
+            if latest_chatty is not None:
+                self._send_one(*latest_chatty)
+
+    def _send_one(self, job_id: str, event: dict) -> None:
+        kind = event.get("kind", "")
         try:
             visible = self._post_json(
-                f"/api/work/{self._job_id}/event",
+                f"/api/work/{job_id}/event",
                 {**event, "worker": self._name},
             )
         except Exception as exc:
@@ -159,7 +194,7 @@ class Agent:
                 self._last_report_error = kind
                 print(f"    (report {kind} failed: {exc})", flush=True)
             return
-        if not visible:
+        if not visible or self.status is None:
             return
         if title := visible.get("title"):
             self._song = title
@@ -422,7 +457,6 @@ class Worker(Agent):
     # one per chunk turned a two-second download into thirty-five bytes a
     # second, because the download spent its life waiting on the reports about
     # it. A stage change always goes out; a moved bar waits its turn.
-    REPORT_INTERVAL_SECONDS = 1.0
 
     def _note(self, event: dict, progress) -> None:
         """Forward a pipeline event, and print the readable ones.

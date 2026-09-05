@@ -70,11 +70,16 @@ struct QueueView: View {
         // The machines that do this work belong beside the work, not in the
         // menu about signing in and out.
         .toolbar {
+            // Tinted explicitly. Left to inherit, a toolbar button takes
+            // whatever the iOS version of the day thinks a toolbar button
+            // looks like -- blue on one, white on another -- so the same
+            // build looked different on the simulator and on a phone.
             Button {
                 pairing = true
             } label: {
                 Label("Macs", systemImage: "desktopcomputer")
             }
+            .tint(.blue)
         }
         .sheet(isPresented: $pairing) { PairMacView() }
         .sheet(item: $reviewing) { job in
