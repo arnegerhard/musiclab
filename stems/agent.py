@@ -141,6 +141,11 @@ class Agent:
         """
         if self.status is None or not self._job_id:
             return
+        # The pipeline's own completion event, whose `stems` is a count rather
+        # than a list of names. Nobody displays it -- the caller acts on the
+        # result it was handed -- and forwarding it earned a 422 per song.
+        if event.get("kind") == "done":
+            return
         self._start_reporting()
         try:
             self._events.put_nowait((self._job_id, event))
