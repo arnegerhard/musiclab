@@ -23,11 +23,29 @@ struct PairMacView: View {
         let machine: String?
         let createdAt: Double
         let lastSeen: Double?
+        /// What the Mac last reported about itself. Kept past its heartbeat,
+        /// so a machine that is switched off still describes itself.
+        let chip: String?
+        let gpuCores: Int?
+        let memoryGB: Double?
 
         enum CodingKeys: String, CodingKey {
-            case id, label, machine
+            case id, label, machine, chip
             case createdAt = "created_at"
             case lastSeen = "last_seen"
+            case gpuCores = "gpu_cores"
+            case memoryGB = "memory_gb"
+        }
+
+        /// No clock rate: Apple Silicon does not report one.
+        var hardware: String {
+            var parts: [String] = []
+            if let chip, !chip.isEmpty { parts.append(chip) }
+            if let gpuCores, gpuCores > 0 { parts.append("\(gpuCores) GPU cores") }
+            if let memoryGB, memoryGB > 0 {
+                parts.append("\(Int(memoryGB.rounded())) GB")
+            }
+            return parts.joined(separator: " · ")
         }
     }
 
@@ -50,7 +68,21 @@ struct PairMacView: View {
                             Button {
                                 start(with: mac)
                             } label: {
-                                Label(mac.name, systemImage: "desktopcomputer")
+                                // What is on offer, not just that something
+                                // is: choosing between a Mac and Modal is a
+                                // choice about how long the wait will be.
+                                Label {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(mac.name)
+                                        if !mac.hardware.isEmpty {
+                                            Text(mac.hardware)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                } icon: {
+                                    Image(systemName: "desktopcomputer")
+                                }
                             }
                         }
                     } header: {
@@ -71,6 +103,10 @@ struct PairMacView: View {
                             Text(machine.label ?? "A Mac")
                             Text(describe(machine))
                                 .font(.caption).foregroundStyle(.secondary)
+                            if !machine.hardware.isEmpty {
+                                Text(machine.hardware)
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
                         }
                     }
                     .onDelete { offsets in

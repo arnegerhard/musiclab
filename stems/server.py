@@ -112,6 +112,64 @@ def _update(job_id: str, **fields):
     jobs.store.update(job_id, **fields)
 
 
+# How many separations to average a machine's speed over. Enough that one
+# unusually short track does not define the machine, few enough that a
+# machine that got faster -- a laptop taken off battery, a bigger container --
+# is believed within an afternoon.
+SPEED_RUNS = 8
+
+
+def _measure(
+    job_id: str, stage: Stage, where: Where | None, fields: dict,
+    known: dict | None = None,
+) -> None:
+    """Time the wait, and remember how fast the machine that caused it is.
+
+    The only number here that is not a guess. Eight times slower than Modal
+    was measured once, on one track, on one Mac -- fine until the Mac in
+    question is a different Mac. So each machine times itself against the
+    length of the audio it was given: seconds spent per second of song, which
+    is comparable across tracks and across machines, and can be held against
+    the cloud's own ratio.
+
+    From the start of separating to the stems being finished, which for a Mac
+    includes sending them back and for the cloud does not. That is a real
+    difference in the wait, and the wait is what the number is for.
+    """
+    if stage is Stage.separating:
+        # Separating is the one stage reported over and over -- every tick of
+        # the model's own progress bar arrives here -- so the caller's copy of
+        # the job is used where there is one. Fetching it again would be a
+        # round trip to a shared Dict per tick, to learn something the caller
+        # already knew.
+        job = known if known is not None else (jobs.store.get(job_id) or {})
+        if parse_stage(job.get("status")) is not Stage.separating:
+            fields["separating_at"] = time.time()
+            fields["separating_on"] = (
+                "cloud" if where is Where.cloud else (job.get("worker_id") or "mac")
+            )
+        return
+
+    if stage is not Stage.done:
+        return
+    job = known if known is not None else (jobs.store.get(job_id) or {})
+    started = job.get("separating_at")
+    key = job.get("separating_on")
+    duration = float((fields.get("manifest") or {}).get("duration") or 0)
+    if not started or not key or duration <= 0:
+        return
+    ratio = (time.time() - float(started)) / duration
+    if not 0 < ratio < 600:
+        return
+    known = jobs.store.recall(f"speed:{key}") or {}
+    runs = min(int(known.get("runs") or 0), SPEED_RUNS)
+    mean = float(known.get("ratio") or ratio)
+    jobs.store.remember(f"speed:{key}", {
+        "ratio": (mean * runs + ratio) / (runs + 1),
+        "runs": runs + 1,
+    })
+
+
 def _stage(
     job_id: str,
     stage: Stage,
@@ -120,6 +178,7 @@ def _stage(
     progress: float | None = None,
     failure: Failure | None = None,
     where: Where | None = None,
+    known: dict | None = None,
     **fields,
 ) -> None:
     """Move a job to a named stage, and let the stage write its own words.
@@ -159,6 +218,7 @@ def _stage(
         fields["progress"] = progress
     if failure is not None:
         fields["failure"] = failure.value
+    _measure(job_id, stage, where, fields, known)
     _update(job_id, **fields)
 
 
@@ -379,6 +439,10 @@ class WorkerInfo(BaseModel):
     name: str = ""
     chip: str = ""
     cores: int = 0
+    # Apple does not expose a clock rate on Apple Silicon at all -- the
+    # sysctls for it are empty -- so the GPU core count is the honest measure
+    # of how much machine is on the other end.
+    gpu_cores: int = 0
     memory_gb: float = 0
     gpu: bool = False
     version: str = ""
@@ -411,7 +475,43 @@ def register_worker(info: WorkerInfo, user: dict = Depends(worker_user)):
     if user.get("token_label") and not described.get("name"):
         described["name"] = user["token_label"]
     worker_id = jobs.store.register_worker(user["id"], described)
+    # Kept past the heartbeat: a Mac that is asleep is still an M4 with 34 GB,
+    # and the pairing that knows about it should be able to say so rather than
+    # going blank until the machine is switched on.
+    key = described.get("machine") or described.get("name")
+    if key:
+        jobs.store.remember(f"machine:{key}", {
+            field: described.get(field)
+            for field in ("chip", "cores", "gpu_cores", "memory_gb", "gpu")
+        })
     return {"worker_id": worker_id, "poll_seconds": 5}
+
+
+# A ten-core M4 measured about eight times slower than a Modal container over
+# a run of tracks, which makes roughly eighty core-multiples the cloud's
+# share. Used only until a machine has separated something here and can be
+# timed properly, and always shown as an estimate.
+CORES_PER_CLOUD = 80.0
+
+
+def _speed_against_cloud(entry: dict) -> None:
+    """Say how much slower this machine is than separating in the cloud.
+
+    Measured where there is a measurement -- both this machine and the cloud
+    have timed themselves against the length of the audio, so the comparison
+    is two real numbers divided. Estimated from the GPU core count where there
+    is not, which is a guess and is labelled one.
+    """
+    mine = jobs.store.recall(f"speed:{entry.get('worker_id')}") or {}
+    cloud = jobs.store.recall("speed:cloud") or {}
+    if mine.get("ratio") and cloud.get("ratio"):
+        entry["slower_than_cloud"] = round(mine["ratio"] / cloud["ratio"], 1)
+        entry["speed_measured"] = True
+        return
+    cores = int(entry.get("gpu_cores") or 0)
+    if cores:
+        entry["slower_than_cloud"] = round(CORES_PER_CLOUD / cores, 1)
+    entry["speed_measured"] = False
 
 
 @app.get("/api/workers")
@@ -467,13 +567,22 @@ def list_workers(user: dict = Depends(current_user)):
         # "Arne's MacBook Air" is what they called it, "Mac" is what it calls
         # itself, and only one of those is recognisable in a list.
         entry["name"] = pairing.get("label") or entry.get("name") or "A Mac"
+        for key in (pairing.get("machine"), entry.get("machine"), entry.get("name")):
+            remembered = jobs.store.recall(f"machine:{key}") if key else None
+            if remembered:
+                for field, value in remembered.items():
+                    entry.setdefault(field, value)
+                break
+        _speed_against_cloud(entry)
         listed.append(entry)
 
     # A worker running against this account with no pairing behind it -- a
     # development build, say. Shown rather than dropped, and only once.
     for entry in {e["_key"]: e for e in live.values()}.values():
         if entry["_key"] not in matched:
-            listed.append({k: v for k, v in entry.items() if k != "_key"})
+            bare = {k: v for k, v in entry.items() if k != "_key"}
+            _speed_against_cloud(bare)
+            listed.append(bare)
     return listed
 
 
@@ -938,7 +1047,7 @@ def _apply_event(job_id: str, event: dict, where: Where) -> dict:
         extra["title"] = update.title
     _stage(
         job_id, update.stage, where=where, detail=detail,
-        progress=update.fraction, attempts=0, **extra,
+        progress=update.fraction, attempts=0, known=job, **extra,
     )
     return _visible(jobs.store.get(job_id) or {})
 

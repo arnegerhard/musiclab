@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from . import auth, db
+from . import auth, db, jobs
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -194,8 +194,22 @@ def claim_pair(body: PairClaim):
 
 @router.get("/pairings")
 def list_pairings(user: dict = Depends(current_user)):
-    """The Macs paired to this account, newest first."""
-    return db.sessions_with_scope(user["id"], "worker")
+    """The Macs paired to this account, newest first.
+
+    Each carries what it last said about itself -- chip, GPU cores, memory --
+    kept from the last time it checked in, so a Mac that is asleep still reads
+    as the machine it is rather than as a bare name.
+    """
+    listed = []
+    for pairing in db.sessions_with_scope(user["id"], "worker"):
+        entry = dict(pairing)
+        for key in (pairing.get("machine"), pairing.get("label")):
+            remembered = jobs.store.recall(f"machine:{key}") if key else None
+            if remembered:
+                entry.update({k: v for k, v in remembered.items() if v})
+                break
+        listed.append(entry)
+    return listed
 
 
 @router.delete("/pairings/{session_id}")

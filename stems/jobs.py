@@ -32,6 +32,7 @@ class MemoryJobStore:
     def __init__(self):
         self._jobs: dict[str, dict] = {}
         self._batches: dict[str, dict] = {}
+        self._notes: dict[str, dict] = {}
         self._workers: dict[str, dict] = {}
         self._lock = threading.Lock()
 
@@ -48,6 +49,15 @@ class MemoryJobStore:
         with self._lock:
             if job_id in self._jobs:
                 self._jobs[job_id].update(fields)
+
+    def remember(self, key: str, value: dict) -> None:
+        with self._lock:
+            self._notes[key] = value
+
+    def recall(self, key: str) -> dict | None:
+        with self._lock:
+            found = self._notes.get(key)
+            return dict(found) if found else None
 
     def prune(self, older_than: float) -> int:
         with self._lock:

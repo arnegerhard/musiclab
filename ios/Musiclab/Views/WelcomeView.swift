@@ -266,6 +266,10 @@ struct WelcomeView: View {
                             Text(machine.name).font(.callout)
                             Text(machine.headline)
                                 .font(.caption).foregroundStyle(.secondary)
+                            if let spec = machine.specLine {
+                                Text(spec)
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
                         }
                         Spacer(minLength: 0)
                     }
@@ -301,7 +305,13 @@ struct WelcomeView: View {
         Button { start(with: mac) } label: {
             HStack(spacing: 10) {
                 Image(systemName: "desktopcomputer").foregroundStyle(.blue)
-                Text(mac.name).foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mac.name).foregroundStyle(.primary)
+                    if !mac.hardware.isEmpty {
+                        Text(mac.hardware)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Spacer(minLength: 0)
                 Text("Pair").font(.callout).bold().foregroundStyle(.blue)
             }

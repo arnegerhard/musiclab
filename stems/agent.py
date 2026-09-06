@@ -347,6 +347,28 @@ class Worker(Agent):
                 name = ""
             return name or platform.node().split(".")[0] or "A Mac"
 
+        def gpu_cores() -> int:
+            """How many GPU cores this Mac has.
+
+            The number that predicts this workload, and the only one worth
+            showing: clock rate is not exposed on Apple silicon at all --
+            hw.cpufrequency comes back empty -- so asking for it would mean
+            inventing something.
+            """
+            try:
+                import json as _json
+
+                out = subprocess.run(
+                    ["/usr/sbin/system_profiler", "SPDisplaysDataType", "-json"],
+                    capture_output=True, text=True, timeout=20,
+                ).stdout
+                for card in _json.loads(out).get("SPDisplaysDataType", []):
+                    if card.get("sppci_cores"):
+                        return int(card["sppci_cores"])
+            except Exception:
+                pass
+            return 0
+
         memory = sysctl("hw.memsize")
         try:
             import torch
@@ -366,8 +388,13 @@ class Worker(Agent):
             "name": computer_name(),
             "chip": sysctl("machdep.cpu.brand_string") or platform.machine(),
             "cores": int(sysctl("hw.ncpu") or 0) or (os.cpu_count() or 0),
-            "memory_gb": round(int(memory) / 1e9, 1) if memory.isdigit() else 0,
+            # Gibibytes, which is what Apple calls 32 GB and what the Mac
+            # app puts in its pairing advertisement. Decimal gigabytes made
+            # the same machine read as 34 GB once it was paired and 32 GB
+            # while it was offering to be.
+            "memory_gb": round(int(memory) / 1024 ** 3, 1) if memory.isdigit() else 0,
             "gpu": gpu,
+            "gpu_cores": gpu_cores(),
             "version": "1",
         }
 

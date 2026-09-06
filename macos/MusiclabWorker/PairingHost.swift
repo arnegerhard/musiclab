@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import IOKit
 import Network
 import Observation
 
@@ -46,7 +47,11 @@ final class PairingHost {
             listener.service = NWListener.Service(
                 name: Host.current().localizedName ?? "A Mac",
                 type: Self.serviceType,
-                txtRecord: NWTXTRecord(["machine": Self.machineID]).data
+                txtRecord: NWTXTRecord(
+                    ["machine": Self.machineID].merging(
+                        Hardware.advertised, uniquingKeysWith: { a, _ in a }
+                    )
+                ).data
             )
             listener.newConnectionHandler = { [weak self] connection in
                 Task { @MainActor in self?.accept(connection) }
@@ -228,5 +233,63 @@ enum Line {
                 return (try JSONSerialization.jsonObject(with: line) as? [String: Any]) ?? [:]
             }
         }
+    }
+}
+
+
+/// What this Mac is, for a phone deciding whether to send it a song.
+///
+/// Read once and cached: a phone choosing between this Mac and a rented GPU
+/// wants to know what it is choosing, and until it has paired there is no
+/// other channel to tell it -- so the numbers ride in the pairing
+/// advertisement's TXT record.
+///
+/// No clock rate. Apple Silicon does not publish one: `hw.cpufrequency` and
+/// `hw.cpufrequency_max` are both empty, and `hw.tbfrequency` is the
+/// timebase, not the processor. Anything shown as a clock speed here would
+/// have to be made up, and the GPU core count is in any case the number that
+/// decides how long a separation takes.
+enum Hardware {
+    /// Small enough for a TXT record, which has to stay well under a
+    /// kilobyte in total.
+    static let advertised: [String: String] = {
+        var fields: [String: String] = [:]
+        if let chip { fields["chip"] = chip }
+        if let cores = gpuCores { fields["gpu_cores"] = String(cores) }
+        if let gb = memoryGB { fields["memory_gb"] = String(format: "%.0f", gb) }
+        return fields
+    }()
+
+    static let chip: String? = sysctlString("machdep.cpu.brand_string")
+
+    static let memoryGB: Double? = {
+        var bytes: UInt64 = 0
+        var size = MemoryLayout<UInt64>.size
+        guard sysctlbyname("hw.memsize", &bytes, &size, nil, 0) == 0, bytes > 0
+        else { return nil }
+        return Double(bytes) / 1_073_741_824
+    }()
+
+    /// From the graphics driver rather than from a table of chip names, so a
+    /// Max or an Ultra is not quietly reported as the base part.
+    static let gpuCores: Int? = {
+        let service = IOServiceGetMatchingService(
+            kIOMainPortDefault, IOServiceMatching("AGXAccelerator")
+        )
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        let value = IORegistryEntryCreateCFProperty(
+            service, "gpu-core-count" as CFString, kCFAllocatorDefault, 0
+        )
+        return (value?.takeRetainedValue() as? NSNumber)?.intValue
+    }()
+
+    private static func sysctlString(_ name: String) -> String? {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return nil }
+        let text = String(cString: buffer).trimmingCharacters(in: .whitespaces)
+        return text.isEmpty ? nil : text
     }
 }

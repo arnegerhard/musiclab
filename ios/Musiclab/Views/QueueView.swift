@@ -128,6 +128,13 @@ struct QueueView: View {
                     Text(machine.name).font(.callout).lineLimit(1)
                     Text(machine.headline)
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    // What the machine is and what that costs in waiting.
+                    // The point of the row is deciding whether to send a song
+                    // here or to Modal, which needs both halves.
+                    if let spec = machine.specLine {
+                        Text(spec)
+                            .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 0)
                 if machine.state == .busy, let stage = machine.stage {

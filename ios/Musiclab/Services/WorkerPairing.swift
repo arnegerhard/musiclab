@@ -17,6 +17,10 @@ final class WorkerBrowser {
         /// From the advertisement's TXT record. Empty for a Mac too old to
         /// send one, which simply means it cannot be filtered out.
         let machine: String
+        /// What the Mac is, also from the TXT record: "Apple M4 · 10 GPU
+        /// cores · 34 GB". Empty for a Mac too old to send it, which is a
+        /// missing line rather than a wrong one.
+        let hardware: String
         let endpoint: NWEndpoint
     }
 
@@ -54,6 +58,23 @@ final class WorkerBrowser {
 
     static let serviceType = "_musiclab-pair._tcp"
 
+    /// The same line the Queue tab shows for a paired Mac, built from the
+    /// advertisement instead of from the server -- so the machine reads the
+    /// same before and after it is adopted.
+    ///
+    /// There is no clock rate because Apple Silicon does not report one.
+    private static func describe(_ txt: NWTXTRecord) -> String {
+        var parts: [String] = []
+        if let chip = txt["chip"], !chip.isEmpty { parts.append(chip) }
+        if let cores = txt["gpu_cores"], !cores.isEmpty {
+            parts.append("\(cores) GPU cores")
+        }
+        if let memory = txt["memory_gb"], !memory.isEmpty {
+            parts.append("\(memory) GB")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     func start() {
         guard browser == nil else { return }
         let parameters = NWParameters()
@@ -70,11 +91,13 @@ final class WorkerBrowser {
                 self?.found = results.compactMap { result in
                     guard case let .service(name, _, _, _) = result.endpoint else { return nil }
                     var machine = ""
+                    var hardware = ""
                     if case let .bonjour(txt) = result.metadata {
                         machine = txt["machine"] ?? ""
+                        hardware = Self.describe(txt)
                     }
                     return Found(id: name, name: name, machine: machine,
-                                 endpoint: result.endpoint)
+                                 hardware: hardware, endpoint: result.endpoint)
                 }
                 self?.apply()
             }

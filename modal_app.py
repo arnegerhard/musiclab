@@ -139,6 +139,12 @@ class ModalJobStore:
         }
         return worker_id
 
+    def remember(self, key: str, value: dict) -> None:
+        self._d[f"note:{key}"] = value
+
+    def recall(self, key: str) -> dict | None:
+        return self._d.get(f"note:{key}")
+
     def prune(self, older_than: float) -> int:
         """Forget jobs that finished long ago.
 
