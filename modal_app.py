@@ -265,6 +265,18 @@ def worker(entry: str, *args) -> None:
     # secret holds a real host, so the server is never locked out waiting.
     secrets=[modal.Secret.from_name("musiclab-smtp")],
 )
+# Without this a container takes one request at a time, and everything else
+# waits in line behind it. Nothing here was slow -- health answered in 246ms,
+# the library in half a second -- but a phone polling, a Mac heartbeating and
+# a browser pulling stems added up to a queue twenty and thirty seconds deep,
+# which the worker's own thirty-second timeout then read as a dead server. It
+# killed itself, the app restarted it, and it queued up again.
+#
+# Forty because that is FastAPI's own threadpool for sync endpoints, so a
+# larger number would only move the same queue one layer down. Safe in one
+# container: the database hands out a connection per thread and runs in WAL,
+# so readers do not block the writer.
+@modal.concurrent(max_inputs=40)
 @modal.asgi_app()
 def web():
     from stems.server import app as fastapi_app

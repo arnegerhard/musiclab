@@ -456,6 +456,12 @@ class WorkerInfo(BaseModel):
     failure: str = ""
 
 
+# What each machine last said about itself, so the heartbeat can tell a
+# repeat from a change without asking the shared dictionary. One container
+# owns this app, so a plain dict is the whole cache it needs.
+_KNOWN_HARDWARE: dict[str, dict] = {}
+
+
 @app.post("/api/workers/register")
 def register_worker(info: WorkerInfo, user: dict = Depends(worker_user)):
     """Announce a machine that can separate.
@@ -479,11 +485,17 @@ def register_worker(info: WorkerInfo, user: dict = Depends(worker_user)):
     # and the pairing that knows about it should be able to say so rather than
     # going blank until the machine is switched on.
     key = described.get("machine") or described.get("name")
-    if key:
-        jobs.store.remember(f"machine:{key}", {
-            field: described.get(field)
-            for field in ("chip", "cores", "gpu_cores", "memory_gb", "gpu")
-        })
+    hardware = {
+        field: described.get(field)
+        for field in ("chip", "cores", "gpu_cores", "memory_gb", "gpu")
+    }
+    # Only when it changes. This is the heartbeat: it runs every five seconds
+    # per Mac, and it was writing the same "Apple M4, 10 cores, 32 GB" to the
+    # shared dictionary every time -- a network round trip, on the one
+    # container everything else is queueing behind.
+    if key and _KNOWN_HARDWARE.get(key) != hardware:
+        _KNOWN_HARDWARE[key] = hardware
+        jobs.store.remember(f"machine:{key}", hardware)
     return {"worker_id": worker_id, "poll_seconds": 5}
 
 
@@ -494,7 +506,7 @@ def register_worker(info: WorkerInfo, user: dict = Depends(worker_user)):
 CORES_PER_CLOUD = 80.0
 
 
-def _speed_against_cloud(entry: dict) -> None:
+def _speed_against_cloud(entry: dict, cloud: dict) -> None:
     """Say how much slower this machine is than separating in the cloud.
 
     Measured where there is a measurement -- both this machine and the cloud
@@ -503,7 +515,6 @@ def _speed_against_cloud(entry: dict) -> None:
     is not, which is a guess and is labelled one.
     """
     mine = jobs.store.recall(f"speed:{entry.get('worker_id')}") or {}
-    cloud = jobs.store.recall("speed:cloud") or {}
     if mine.get("ratio") and cloud.get("ratio"):
         entry["slower_than_cloud"] = round(mine["ratio"] / cloud["ratio"], 1)
         entry["speed_measured"] = True
@@ -525,6 +536,9 @@ def list_workers(user: dict = Depends(current_user)):
     heartbeat knows the hostname -- so a Mac that is both used to appear
     twice: once idle and once offline.
     """
+    # Once, not once per machine: every Mac is compared against the same
+    # cloud figure, and each lookup is a round trip.
+    cloud = jobs.store.recall("speed:cloud") or {}
     live: dict[str, dict] = {}
     for worker in jobs.store.workers(user["id"]):
         entry = dict(worker)
@@ -573,7 +587,7 @@ def list_workers(user: dict = Depends(current_user)):
                 for field, value in remembered.items():
                     entry.setdefault(field, value)
                 break
-        _speed_against_cloud(entry)
+        _speed_against_cloud(entry, cloud)
         listed.append(entry)
 
     # A worker running against this account with no pairing behind it -- a
@@ -581,7 +595,7 @@ def list_workers(user: dict = Depends(current_user)):
     for entry in {e["_key"]: e for e in live.values()}.values():
         if entry["_key"] not in matched:
             bare = {k: v for k, v in entry.items() if k != "_key"}
-            _speed_against_cloud(bare)
+            _speed_against_cloud(bare, cloud)
             listed.append(bare)
     return listed
 

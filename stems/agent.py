@@ -37,6 +37,9 @@ class Agent:
         self._song = ""
         self._name = ""
         self._last_report_error = ""
+        # Failure kinds already complained about, so a server that is down
+        # does not write the same sentence into the log every five seconds.
+        self._quiet_about: set[str] = set()
         self._reporter = None
         # Whoever started this. Checked while idle so an orphan stops itself.
         self._parent_pid = __import__("os").getppid()
@@ -398,6 +401,29 @@ class Worker(Agent):
             "version": "1",
         }
 
+    def beat(self, busy: bool = False) -> None:
+        """Check in, and shrug if the server does not answer.
+
+        The heartbeat used to be called bare, so one slow reply killed the
+        worker outright: the server was queueing requests thirty seconds deep,
+        urllib gave up at thirty, the exception reached the top of run(), the
+        process exited and the Mac app started another one that queued up
+        behind the same wall. The Mac looked like it was flickering on and off
+        because it was.
+
+        Missing a beat costs nothing -- the next one is seconds away, and the
+        server only drops a worker after a minute of silence.
+        """
+        try:
+            self.register(busy=busy)
+        except Exception as exc:
+            # Once per kind, or a server that is down fills the log with the
+            # same sentence several times a minute.
+            kind = type(exc).__name__
+            if kind not in self._quiet_about:
+                self._quiet_about.add(kind)
+                print(f"  heartbeat failed ({kind}: {exc}); carrying on", flush=True)
+
     def register(self, busy: bool = False) -> str:
         """Check in, carrying whatever this Mac is doing at the moment.
 
@@ -521,7 +547,16 @@ class Worker(Agent):
         self._done = 0
         ensure_on_path()
 
-        self.worker_id = self.register()
+        # Retried rather than fatal: the server may still be waking up, and
+        # exiting here only hands the problem to whatever restarts this.
+        self.worker_id = ""
+        for attempt in range(30):
+            try:
+                self.worker_id = self.register()
+                break
+            except Exception as exc:
+                progress(f"  server not answering ({exc}); retrying")
+                time.sleep(min(2 ** attempt, 30))
         info = self.describe()
         self._name = info["name"]
         self.status.set(worker=info["name"], server=self.base)
@@ -554,7 +589,7 @@ class Worker(Agent):
                     # The same heartbeat a full job gets. Without it the Mac
                     # fell off the roster sixty seconds into a fetch and the
                     # app called it offline while it was downloading.
-                    self.register(busy=True)
+                    self.beat(busy=True)
                     stop = threading.Event()
                     threading.Thread(
                         target=self._heartbeat, args=(stop,), daemon=True
@@ -580,7 +615,7 @@ class Worker(Agent):
                         stop.set()
                         self._job_id = ""
                         self.status.idle(songs_done=self._done)
-                        self.register()
+                        self.beat()
                     continue
 
             if job is None:
@@ -593,7 +628,7 @@ class Worker(Agent):
                 # while idle, so after ninety seconds it decided its own
                 # worker had died -- which is the state it spends most of its
                 # life in.
-                self.register()
+                self.beat()
                 self.status.touch()
                 time.sleep(self.poll_seconds)
                 if self._orphaned():
@@ -604,7 +639,7 @@ class Worker(Agent):
             self._job_id = job["job_id"]
             progress(f"job {job['job_id']}")
             self._song = ""
-            self.register(busy=True)
+            self.beat(busy=True)
             # Separation takes minutes; without a heartbeat the worker would
             # drop off the roster exactly while it is doing the work.
             stop = threading.Event()
@@ -662,7 +697,7 @@ class Worker(Agent):
             # Mac was in the middle of it.
             self.report(kind="still_working")
             try:
-                self.register(busy=True)
+                self.beat(busy=True)
             except Exception:
                 pass
 
