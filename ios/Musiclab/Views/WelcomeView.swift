@@ -266,8 +266,12 @@ struct WelcomeView: View {
                             Text(machine.name).font(.callout)
                             Text(machine.headline)
                                 .font(.caption).foregroundStyle(.secondary)
-                            if let spec = machine.specLine {
-                                Text(spec)
+                            if !machine.hardware.isEmpty {
+                                Text(machine.hardware)
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
+                            if let speed = machine.speedNote {
+                                Text(speed)
                                     .font(.caption2).foregroundStyle(.tertiary)
                             }
                         }
