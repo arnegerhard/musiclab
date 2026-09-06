@@ -69,6 +69,12 @@ struct RootView: View {
                 .task {
                     queue.begin(with: client)
                     nowPlaying.wireRemoteCommands(engine: engine, client: client)
+                    // Here rather than only on the change, because the change
+                    // happens during the swap out of the sign-in screen and a
+                    // sheet presented into a view that is being replaced is
+                    // quietly dropped. By the time this runs the tabs are up
+                    // and there is something stable to present from.
+                    considerWelcome(account.user?.id)
                 }
                 // The system keeps its own clock from the rate and the
                 // elapsed time, so this only has to speak when something
@@ -97,9 +103,14 @@ struct RootView: View {
     /// choice -- is invisible from the library, and the Add screen offers the
     /// choice without ever explaining it.
     private func considerWelcome(_ id: String?) {
-        guard let id, !UserDefaults.standard.bool(forKey: Self.welcomeKey(id))
+        guard let id, !UserDefaults.standard.bool(forKey: Self.welcomeKey(id)),
+              !showingWelcome
         else { return }
-        showingWelcome = true
+        // A turn later, so this never lands in the middle of the transition
+        // that signing in causes. Asked twice -- once when the account
+        // appears, once when the tabs do -- and the guard above makes the
+        // second ask harmless.
+        Task { @MainActor in showingWelcome = true }
     }
 
     private func finishWelcome() {
