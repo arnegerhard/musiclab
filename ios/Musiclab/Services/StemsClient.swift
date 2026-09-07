@@ -287,6 +287,22 @@ extension StemsClient {
     struct ConfirmBody: Encodable { let video_id: String }
     struct OK: Decodable { let ok: Bool }
 
+    struct SearchBody: Encodable { let text: String }
+    struct SearchReply: Decodable {
+        /// What the server made of the typed line, so the screen can show its
+        /// working rather than leaving a person to wonder why naming the
+        /// artist changed the results so much.
+        let artist: String
+        let title: String
+        let candidates: [MatchCandidate]
+    }
+
+    /// Search YouTube for a song somebody typed the name of, scored the same
+    /// way a playlist track is.
+    func searchYouTube(_ text: String) async throws -> SearchReply {
+        try await post("api/search", body: SearchBody(text: text))
+    }
+
     /// What would this track be matched to? Used to preview before committing.
     func preview(track: PlaylistTrack) async throws -> [MatchCandidate] {
         let reply: MatchReply = try await post("api/match", body: track)

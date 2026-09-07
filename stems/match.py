@@ -135,6 +135,36 @@ def score_candidate(
     return candidate
 
 
+# How people write a song down when there is one box to write it in.
+# "Queen - Killer Queen", "Killer Queen by Queen", occasionally an en dash
+# because a phone keyboard offered one.
+_BY = re.compile(r"^(?P<title>.+?)\s+by\s+(?P<artist>.+)$", re.IGNORECASE)
+_DASH = re.compile(r"^(?P<artist>.+?)\s+[-\u2013\u2014]\s+(?P<title>.+)$")
+
+
+def split_query(text: str) -> tuple[str, str]:
+    """Pull an artist and a title out of one line of typing.
+
+    Worth the guess. A playlist track arrives with its artist and its length
+    already known, and those are the two strongest signals the scoring has --
+    searching "killer queen" alone puts Queen's own upload level with a
+    different song of the same name by somebody else, both on 38. Told the
+    artist, Queen's goes to 84 and the impostor falls away.
+
+    Returns ("", text) when there is nothing to split on, which scores exactly
+    as it did before and is no worse than not trying.
+    """
+    text = (text or "").strip()
+    for pattern in (_BY, _DASH):
+        found = pattern.match(text)
+        if found:
+            artist = found.group("artist").strip()
+            title = found.group("title").strip()
+            if artist and title:
+                return artist, title
+    return "", text
+
+
 def search(
     title: str, artist: str = "", duration: float | None = None, limit: int = 8
 ) -> list[Candidate]:

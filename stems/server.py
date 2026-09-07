@@ -416,6 +416,41 @@ def _enqueue(request: JobRequest, user: dict) -> str:
     return job_id
 
 
+class SearchQuery(BaseModel):
+    text: str
+
+
+@app.post("/api/search")
+def search_youtube(query: SearchQuery, user: dict = Depends(current_user)):
+    """Find YouTube uploads for a song somebody typed the name of.
+
+    The same scoring a playlist track gets -- the point is the penalties, which
+    is what pushes a karaoke backing, a live cut and a sped-up re-upload below
+    the studio recording. A person reading a list can spot a cover; they cannot
+    spot that the third result is thirty seconds short.
+
+    The typed line is split into artist and title where it can be, because a
+    playlist track arrives with both and this one does not. It matters more
+    than it looks: "killer queen" alone puts Queen level with a different song
+    of the same name, and naming the artist separates them by forty points.
+    """
+    text = query.text.strip()
+    if len(text) < 2:
+        return {"candidates": [], "artist": "", "title": text}
+    artist, title = match.split_query(text)
+    try:
+        candidates = match.search(title, artist, None)
+    except Exception as exc:
+        raise HTTPException(502, f"Could not reach YouTube: {exc}") from exc
+    return {
+        # What the split decided, so the app can show its working rather than
+        # leaving a person to wonder why naming the artist changed everything.
+        "artist": artist,
+        "title": title,
+        "candidates": [_candidate_json(c) for c in candidates[:8]],
+    }
+
+
 @app.post("/api/match")
 def find_match(track: PlaylistTrack, user: dict = Depends(current_user)):
     """Preview what a playlist track would be matched to, without separating."""

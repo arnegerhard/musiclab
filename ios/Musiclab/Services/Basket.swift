@@ -11,13 +11,17 @@ import Observation
 @MainActor
 final class Basket {
     enum Item: Identifiable, Equatable {
-        case link(String)
+        // The second half is what to call it. A pasted link has no name
+        // until it is fetched, but one chosen from a search already has
+        // its title, and showing the URL instead would be throwing that
+        // away in front of the person who just read it.
+        case link(String, String)
         case file(URL)
         case track(PlaylistTrack)
 
         var id: String {
             switch self {
-            case let .link(url): return "link:\(url)"
+            case let .link(url, _): return "link:\(url)"
             case let .file(url): return "file:\(url.absoluteString)"
             case let .track(track): return "track:\(track.id)"
             }
@@ -25,7 +29,7 @@ final class Basket {
 
         var title: String {
             switch self {
-            case let .link(url): return url
+            case let .link(url, name): return name.isEmpty ? url : name
             case let .file(url): return url.deletingPathExtension().lastPathComponent
             case let .track(track): return track.title
             }
@@ -92,7 +96,7 @@ final class Basket {
         items.compactMap { if case let .track(t) = $0 { return t } else { return nil } }
     }
     var links: [String] {
-        items.compactMap { if case let .link(l) = $0 { return l } else { return nil } }
+        items.compactMap { if case let .link(l, _) = $0 { return l } else { return nil } }
     }
     var files: [URL] {
         items.compactMap { if case let .file(u) = $0 { return u } else { return nil } }

@@ -12,6 +12,11 @@ struct AddSongView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var link = ""
+    @State private var query = ""
+    @State private var searching = false
+    @State private var results: [MatchCandidate] = []
+    @State private var readAs = ""
+    @State private var searchedFor = ""
     @State private var picking = false
     @State private var pairing = false
     @State private var showingSpotifySetup = false
@@ -39,7 +44,7 @@ struct AddSongView: View {
             // downloaded from somewhere that answers a home connection, which
             // is a paired Mac. Without one they are not slow or awkward, they
             // are impossible, so they are not offered.
-            if hasMac { linkSection }
+            if hasMac { searchSection; linkSection }
             fileSection
             if hasMac {
                 servicesSection
@@ -101,6 +106,114 @@ struct AddSongView: View {
     }
 
     // MARK: - Ways in
+
+    /// Type a song, get the same scored list a playlist track would get.
+    ///
+    /// The link box below wants a URL somebody already found. This wants the
+    /// name of a song, which is what people actually have -- and it applies
+    /// the penalties that push a karaoke backing, a live cut and a sped-up
+    /// re-upload below the studio recording. A reader can spot a cover in a
+    /// list of titles; they cannot spot that one of them is thirty seconds
+    /// short of the record.
+    private var searchSection: some View {
+        Section {
+            HStack(spacing: 8) {
+                TextField("Artist – song", text: $query)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    .onSubmit { Task { await runSearch() } }
+                if searching {
+                    ProgressView().controlSize(.small)
+                } else if !query.isEmpty {
+                    Button("Search") { Task { await runSearch() } }
+                        .font(.callout).buttonStyle(.borderedProminent)
+                }
+            }
+            ForEach(results) { candidate in
+                Button { choose(candidate) } label: { resultRow(candidate) }
+                    .buttonStyle(.plain)
+            }
+            if results.isEmpty && !searchedFor.isEmpty && !searching {
+                Text("Nothing found for “\(searchedFor)”.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Search")
+        } footer: {
+            // Naming the artist is worth forty points of scoring, which is
+            // the difference between the right song and a different one with
+            // the same name. Worth asking for rather than hoping for.
+            Text(readAs.isEmpty
+                 ? "Put the artist first — “Queen – Killer Queen” — and the "
+                   + "right recording rises to the top."
+                 : "Searched for \(readAs). Tap one to add it.")
+        }
+    }
+
+    private func resultRow(_ candidate: MatchCandidate) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(candidate.title)
+                    .font(.callout).foregroundStyle(.primary).lineLimit(2)
+                HStack(spacing: 6) {
+                    Text(candidate.channel).lineLimit(1)
+                    if let seconds = candidate.duration, seconds > 0 {
+                        Text("·")
+                        Text(clock(seconds))
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                // Only the cautions. "title matches" tells a reader nothing
+                // they cannot see for themselves in the line above it.
+                ForEach(candidate.cautions, id: \.self) { caution in
+                    Text(caution)
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: chosen(candidate) ? "checkmark.circle.fill" : "plus.circle")
+                .foregroundStyle(chosen(candidate) ? .green : .blue)
+        }
+        .contentShape(Rectangle())
+        .padding(.vertical, 2)
+    }
+
+    private func chosen(_ candidate: MatchCandidate) -> Bool {
+        basket.items.contains { $0.id == "link:\(candidate.url)" }
+    }
+
+    private func choose(_ candidate: MatchCandidate) {
+        // The title travels with it, so the basket says "Killer Queen" rather
+        // than a v= parameter.
+        basket.add(.link(candidate.url, candidate.title))
+        added = nil
+    }
+
+    private func clock(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    private func runSearch() async {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard text.count >= 2, !searching else { return }
+        searching = true
+        error = nil
+        defer { searching = false }
+        do {
+            let reply = try await client.searchYouTube(text)
+            results = reply.candidates
+            searchedFor = text
+            readAs = reply.artist.isEmpty
+                ? "“\(reply.title)”"
+                : "“\(reply.title)” by \(reply.artist)"
+        } catch {
+            results = []
+            searchedFor = ""
+            readAs = ""
+            self.error = error.localizedDescription
+        }
+    }
 
     private var linkSection: some View {
         Section {
@@ -350,7 +463,7 @@ struct AddSongView: View {
 
     private func addLink() {
         guard looksLikeLink else { return }
-        basket.add(.link(link.trimmingCharacters(in: .whitespaces)))
+        basket.add(.link(link.trimmingCharacters(in: .whitespaces), ""))
         link = ""
         added = nil
     }
