@@ -4,6 +4,7 @@ struct RootView: View {
     @Environment(StemsClient.self) private var client
     @Environment(Account.self) private var account
     @Environment(JobQueue.self) private var queue
+    @Environment(LibraryStore.self) private var library
     @Environment(NowPlaying.self) private var nowPlaying
     @Environment(SpatialEngine.self) private var engine
     @State private var checkedSession = false
@@ -21,6 +22,13 @@ struct RootView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .task {
+                    // Whoever was signed in last time, straight away. Every
+                    // launch used to hold this screen until the server had
+                    // answered -- half a second on a good connection, the
+                    // whole of a bad one -- to be told what the phone already
+                    // knew. The token is still checked, just not in front of
+                    // the person waiting.
+                    if account.adoptRememberedUser() { checkedSession = true }
                     await account.restore()
                     checkedSession = true
                 }
@@ -67,6 +75,13 @@ struct RootView: View {
                     }
                 }
                 .task {
+                    // Before begin(), so the first poll has somewhere to
+                    // land and the cache is on screen before it returns.
+                    if let id = account.user?.id {
+                        queue.adopt(account: id)
+                        library.begin(with: client, account: id)
+                    }
+                    await library.refresh()
                     queue.begin(with: client)
                     nowPlaying.wireRemoteCommands(engine: engine, client: client)
                     // Here rather than only on the change, because the change

@@ -132,8 +132,31 @@ final class StemsClient {
         return image
     }
 
-    func library() async throws -> [LibraryEntry] {
-        try await get("api/library")
+    struct Fresh<T> {
+        let entries: T
+        let etag: String
+    }
+
+    /// The library, unless the caller already has it.
+    ///
+    /// Returns nil for 304, which is the server saying the caller's copy is
+    /// still correct -- it answers that without opening a single manifest, so
+    /// the common case costs a round trip and nothing else.
+    func library(ifNoneMatch etag: String = "") async throws -> Fresh<[LibraryEntry]>? {
+        var request = self.request(baseURL.appendingPathComponent("api/library"))
+        if !etag.isEmpty { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw ClientError.badResponse(0)
+        }
+        if http.statusCode == 304 { return nil }
+        guard http.statusCode == 200 else {
+            throw ClientError.badResponse(http.statusCode)
+        }
+        return Fresh(
+            entries: try decoder.decode([LibraryEntry].self, from: data),
+            etag: http.value(forHTTPHeaderField: "ETag") ?? ""
+        )
     }
 
     func track(slug: String) async throws -> Track {

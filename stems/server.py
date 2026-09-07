@@ -11,7 +11,9 @@ import traceback
 import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+import hashlib
+
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -561,7 +563,9 @@ def _speed_against_cloud(entry: dict, cloud: dict) -> None:
 
 
 @app.get("/api/workers")
-def list_workers(user: dict = Depends(current_user)):
+def list_workers(
+    request: Request, response: Response, user: dict = Depends(current_user)
+):
     """Every machine this account has, and what each is doing right now.
 
     Two sources have to be reconciled. A pairing is a Mac this account
@@ -632,6 +636,18 @@ def list_workers(user: dict = Depends(current_user)):
             bare = {k: v for k, v in entry.items() if k != "_key"}
             _speed_against_cloud(bare, cloud)
             listed.append(bare)
+
+    # Polled every three seconds by every phone that is awake, and an idle
+    # Mac says the same thing every time. The fingerprint ignores "seen",
+    # which ticks with the heartbeat and would make every answer look new.
+    fingerprint = json.dumps(
+        [{k: v for k, v in row.items() if k != "seen"} for row in listed],
+        sort_keys=True, default=str,
+    )
+    etag = hashlib.sha256(fingerprint.encode()).hexdigest()[:32]
+    response.headers["ETag"] = etag
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
     return listed
 
 
@@ -1246,20 +1262,49 @@ def get_job(job_id: str, user: dict = Depends(current_user)):
     return _public_job(job)
 
 
+def _library_etag(root: Path) -> tuple[str, list[Path]]:
+    """A cheap fingerprint of the library, and the manifests behind it.
+
+    Stat, not parse. Answering this endpoint means opening and decoding every
+    manifest on a network volume, which is most of the half second it takes --
+    and almost every request is a poll that finds nothing has changed. The
+    modification times say whether anything did, and cost one stat each.
+
+    The song's own directory is stamped as well as its manifest, because a
+    cover added by a backfill lands beside the manifest without touching it.
+    """
+    if not root.exists():
+        return "empty", []
+    manifests = sorted(
+        root.glob("*/manifest.json"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
+    digest = hashlib.sha256()
+    for path in manifests:
+        try:
+            digest.update(
+                f"{path.parent.name}:{path.stat().st_mtime_ns}:"
+                f"{path.parent.stat().st_mtime_ns}\n".encode()
+            )
+        except OSError:
+            continue
+    return digest.hexdigest()[:32], manifests
+
+
 @app.get("/api/library")
-def library(user: dict = Depends(current_user)):
+def library(request: Request, response: Response, user: dict = Depends(current_user)):
     """This user's separated tracks, and only theirs."""
     # A worker may have finished a song in another container since the last
     # request; on a shared volume that is not visible until we look again.
     jobs.refresh()
-    entries = []
     root = user_dir(user)
+    etag, manifests = _library_etag(root)
+    response.headers["ETag"] = etag
+    # Nothing has changed since the caller last asked, so it already has this.
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    entries = []
     if root.exists():
-        for manifest_path in sorted(
-            root.glob("*/manifest.json"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        ):
+        for manifest_path in manifests:
             try:
                 manifest = json.loads(manifest_path.read_text())
             except (json.JSONDecodeError, OSError):

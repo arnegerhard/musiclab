@@ -37,6 +37,33 @@ final class Account: NSObject {
 
     var isSignedIn: Bool { user != nil }
 
+    /// Who was signed in last time, so a launch holding a token can draw the
+    /// app instead of a spinner while the server confirms what the phone
+    /// already knows.
+    private static let rememberedUser = "last-user"
+
+    private func remember(_ who: User?) {
+        guard let who, let data = try? JSONEncoder().encode(who) else {
+            UserDefaults.standard.removeObject(forKey: Self.rememberedUser)
+            return
+        }
+        UserDefaults.standard.set(data, forKey: Self.rememberedUser)
+    }
+
+    /// Sign in with what is already on the phone. This trusts nothing -- the
+    /// token still has to satisfy the server on every request it is used for
+    /// -- it only decides which screen to draw first.
+    @discardableResult
+    func adoptRememberedUser() -> Bool {
+        guard user == nil, !client.token.isEmpty,
+              let data = UserDefaults.standard.data(forKey: Self.rememberedUser),
+              let found = try? JSONDecoder().decode(User.self, from: data)
+        else { return false }
+        user = found
+        client.user = found
+        return true
+    }
+
     // MARK: - Requests
 
     private func post<Body: Encodable>(_ path: String, _ body: Body) async throws -> Session {
@@ -62,6 +89,7 @@ final class Account: NSObject {
         client.token = session.token
         client.user = session.user
         user = session.user
+        remember(session.user)
         error = nil
     }
 
@@ -175,8 +203,11 @@ final class Account: NSObject {
             // about the session. Keep it: a timeout in a tunnel is not a
             // sign-out, and throwing the token away means typing a password
             // to recover from a bad minute of signal.
-            user = nil
-            return false
+            //
+            // That was always the intent, but the line here cleared the user
+            // anyway, so anyone launching without signal landed on the
+            // sign-in screen holding a perfectly good token.
+            return adoptRememberedUser() || user != nil
         }
         guard http.statusCode == 200,
               let found = try? JSONDecoder().decode(User.self, from: data)
@@ -184,12 +215,14 @@ final class Account: NSObject {
             // Only the server itself saying "not you" retires the token.
             if http.statusCode == 401 || http.statusCode == 403 {
                 client.token = ""
+                remember(nil)
             }
             user = nil
             return false
         }
         user = found
         client.user = found
+        remember(found)
         return true
     }
 
@@ -209,6 +242,7 @@ final class Account: NSObject {
         client.token = ""
         client.user = nil
         user = nil
+        remember(nil)
         return true
     }
 
@@ -221,6 +255,7 @@ final class Account: NSObject {
         client.token = ""
         client.user = nil
         user = nil
+        remember(nil)
     }
 }
 

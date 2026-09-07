@@ -7,6 +7,7 @@ struct MusiclabApp: App {
     @State private var apple = AppleMusicSource()
     @State private var spotify = SpotifySource()
     @State private var queue = JobQueue()
+    @State private var library = LibraryStore()
     @State private var basket = Basket()
     @State private var nowPlaying = NowPlaying()
     // Playback outlives the player screen: leaving it should not stop
@@ -28,6 +29,7 @@ struct MusiclabApp: App {
                 .environment(apple)
                 .environment(spotify)
                 .environment(queue)
+                .environment(library)
                 .environment(basket)
                 .environment(nowPlaying)
                 .environment(engine)

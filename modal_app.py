@@ -218,10 +218,37 @@ class ModalRunner:
         worker.spawn(function.__name__, *args)
 
 
+_missed_reloads = 0
+
+
+def _reload_quietly() -> None:
+    """Pick up what other containers wrote, and shrug if somebody is reading.
+
+    A volume refuses to reload while any file on it is open, and since this
+    container started answering forty requests at once there is usually
+    somebody part-way through a manifest. The reload then raised, the request
+    it was serving became a 500, and /api/jobs -- polled every three seconds
+    by every phone -- started failing intermittently.
+
+    A missed reload costs one request its freshness. Raising costs it
+    entirely, and the next request reloads anyway.
+    """
+    global _missed_reloads
+    try:
+        data.reload()
+    except Exception as exc:
+        _missed_reloads += 1
+        # Rarely, so a busy container does not narrate every collision, but
+        # not never: a volume that has genuinely stopped reloading should
+        # leave a trace.
+        if _missed_reloads % 50 == 1:
+            print(f"volume reload skipped ({exc}); {_missed_reloads} so far", flush=True)
+
+
 def _install_runtime() -> None:
     from stems import db, jobs
 
-    jobs.use(ModalJobStore(job_state), ModalRunner(), data.reload, data.commit)
+    jobs.use(ModalJobStore(job_state), ModalRunner(), _reload_quietly, data.commit)
     # A volume only persists what has been committed, so every database write
     # is followed by one.
     db.flush = database.commit

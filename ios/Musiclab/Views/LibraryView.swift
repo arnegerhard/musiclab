@@ -6,9 +6,9 @@ struct LibraryView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(SpatialEngine.self) private var engine
     @Environment(NowPlaying.self) private var nowPlaying
-    @State private var entries: [LibraryEntry] = []
     @State private var error: String?
-    @State private var loading = true
+    @Environment(LibraryStore.self) private var library
+    @Environment(JobQueue.self) private var queue
     /// Held rather than deleted on the spot: this cannot be undone, and the
     /// song costs ten minutes of a Mac to make again.
     @State private var confirming: LibraryEntry?
@@ -28,7 +28,7 @@ struct LibraryView: View {
         // the songs went from zero rows to several with no insertion recorded.
         // UICollectionView asserts on exactly that.
         List {
-            ForEach(entries) { entry in
+            ForEach(library.entries) { entry in
                 Button {
                     nowPlaying.open(entry)
                 } label: {
@@ -49,12 +49,15 @@ struct LibraryView: View {
                 .buttonStyle(.plain)
             }
             .onDelete { offsets in
-                confirming = offsets.first.map { entries[$0] }
+                confirming = offsets.first.map { library.entries[$0] }
             }
         }
         .overlay {
-            if entries.isEmpty {
-                if loading {
+            if library.entries.isEmpty {
+                // Only before anything is known. Once a list has come back --
+                // from the server or from the last launch -- an empty one is
+                // an answer, not a wait.
+                if !library.hasLoaded {
                     ProgressView()
                 } else if let error {
                     // There is one server and it is not going anywhere, so the
@@ -120,7 +123,11 @@ struct LibraryView: View {
                 // well -- a distinction that meant something when the server
                 // might be a Mac on this network, and nothing since.
                 Button("Sign out", systemImage: "person.crop.circle.badge.xmark") {
-                    Task { await account.signOut() }
+                    Task {
+                        library.forget()
+                        queue.forget()
+                        await account.signOut()
+                    }
                 }
                 Divider()
                 Button("Delete account", systemImage: "trash", role: .destructive) {
@@ -155,14 +162,8 @@ struct LibraryView: View {
     /// and an error banner for one dropped request, would be worse than the
     /// staleness this is fixing.
     private func reload(quietly: Bool = false) async {
-        if !quietly { loading = true }
-        defer { loading = false }
-        do {
-            entries = try await client.library()
-            error = nil
-        } catch {
-            if !quietly { self.error = error.localizedDescription }
-        }
+        await library.refresh(quietly: quietly)
+        error = quietly ? error : library.lastError
     }
 
     private func closeAccount() async {
@@ -170,7 +171,8 @@ struct LibraryView: View {
         engine.teardown()
         nowPlaying.clear()
         if await account.deleteAccount() {
-            entries = []
+            library.forget()
+            queue.forget()
         } else {
             error = "Could not delete the account. Try again in a moment."
         }
@@ -186,7 +188,7 @@ struct LibraryView: View {
         }
         do {
             try await client.delete(slug: entry.slug)
-            withAnimation { entries.removeAll { $0.slug == entry.slug } }
+            withAnimation { library.drop(slug: entry.slug) }
         } catch {
             self.error = error.localizedDescription
         }

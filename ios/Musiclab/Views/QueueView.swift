@@ -121,12 +121,16 @@ struct QueueView: View {
     private func machineRow(_ machine: Machine) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
+                // Grey until the server has confirmed it this launch. The
+                // name and the specification came off the disk and are still
+                // true; what the Mac was *doing* when the app last closed is
+                // a guess about the present, and a green dot would assert it.
                 Circle()
-                    .fill(machine.indicator)
+                    .fill(queue.machinesAreLive ? machine.indicator : Color.secondary)
                     .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(machine.name).font(.callout).lineLimit(1)
-                    Text(machine.headline)
+                    Text(queue.machinesAreLive ? machine.headline : "Checking…")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     // What the machine is, and what that costs in waiting.
                     // The point of the row is deciding whether to send a song
@@ -147,7 +151,8 @@ struct QueueView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            if machine.state == .busy || machine.state == .downloadingModels {
+            if queue.machinesAreLive,
+               machine.state == .busy || machine.state == .downloadingModels {
                 if machine.showsDeterminateBar, let fraction = machine.progress {
                     ProgressView(value: min(1, max(0, fraction)))
                         .progressViewStyle(.linear)

@@ -27,6 +27,8 @@
 		80904057D911E98008B285A4 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD45343DD8B0761ED7722E03 /* LibraryView.swift */; };
 		0153613C938AAF157E86BB3E /* WorkerPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */; };
 		5FC82D0A26A841CB21F45511 /* NowPlaying.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28EFD5ECBEE53D28479D311 /* NowPlaying.swift */; };
+		2116A7D5771E473A9A4DA69E /* Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720ADA1E61C042F584FDFAED /* Cache.swift */; };
+		92EE85F7702C4E0F885D9856 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7906801329984DAB8228795F /* LibraryStore.swift */; };
 		DF58BB1DCB49CD7FF553358A /* Basket.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAEC84882F32D76ED84C2200 /* Basket.swift */; };
 		53067C2822036C0E45CCA812 /* JobQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65280A69102A84A0EF3843F /* JobQueue.swift */; };
 		8E4980CB05DB5EEC7A5DCDD1 /* SpotifySetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A2DBBADB33369533C09AAF /* SpotifySetupView.swift */; };
@@ -53,6 +55,8 @@
 		4F0B0C3F5EC5C16C9B2B6897 /* ServerEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerEndpoint.swift; sourceTree = "<group>"; };
 		07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkerPairing.swift; sourceTree = "<group>"; };
 		D28EFD5ECBEE53D28479D311 /* NowPlaying.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlaying.swift; sourceTree = "<group>"; };
+		720ADA1E61C042F584FDFAED /* Cache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cache.swift; sourceTree = "<group>"; };
+		7906801329984DAB8228795F /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
 		EAEC84882F32D76ED84C2200 /* Basket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Basket.swift; sourceTree = "<group>"; };
 		A65280A69102A84A0EF3843F /* JobQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobQueue.swift; sourceTree = "<group>"; };
 		6D2CF87C1DFA10DC1B9AF970 /* AddSongView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSongView.swift; sourceTree = "<group>"; };
@@ -135,6 +139,8 @@
 				A5DFDCDDF9969AA01EB9347C /* AppleMusicSource.swift */,
 				07C47B4A107CC7F0EAEC4416 /* WorkerPairing.swift */,
 				D28EFD5ECBEE53D28479D311 /* NowPlaying.swift */,
+				720ADA1E61C042F584FDFAED /* Cache.swift */,
+				7906801329984DAB8228795F /* LibraryStore.swift */,
 				EAEC84882F32D76ED84C2200 /* Basket.swift */,
 				A65280A69102A84A0EF3843F /* JobQueue.swift */,
 				4F0B0C3F5EC5C16C9B2B6897 /* ServerEndpoint.swift */,
@@ -265,6 +271,8 @@
 				2C708A27448DF2815DFA87F3 /* RootView.swift in Sources */,
 				0153613C938AAF157E86BB3E /* WorkerPairing.swift in Sources */,
 				5FC82D0A26A841CB21F45511 /* NowPlaying.swift in Sources */,
+				2116A7D5771E473A9A4DA69E /* Cache.swift in Sources */,
+				92EE85F7702C4E0F885D9856 /* LibraryStore.swift in Sources */,
 				DF58BB1DCB49CD7FF553358A /* Basket.swift in Sources */,
 				53067C2822036C0E45CCA812 /* JobQueue.swift in Sources */,
 				F6E3D8DA6FFEFD45F67E8945 /* ServerEndpoint.swift in Sources */,
